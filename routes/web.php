@@ -11,6 +11,7 @@ use App\Http\Controllers\LedgerController;
 use App\Http\Controllers\TrialBalanceController;
 use App\Http\Controllers\ProfitLossController;
 use App\Http\Controllers\BalanceSheetController;
+use App\Http\Controllers\CashFlowController;
 use App\Http\Controllers\FinancialYearController;
 use App\Http\Controllers\VoucherTypeController;
 use App\Http\Controllers\CompanySwitchController;
@@ -90,6 +91,13 @@ Route::post('/switch-company', [CompanySwitchController::class, 'switch'])
 
     Route::get('/balance-sheet', [BalanceSheetController::class, 'index'])
     ->name('balance-sheet.index');
+
+    Route::middleware(['auth'])->group(function () {
+
+    Route::get('/cash-flow', [CashFlowController::class, 'index'])
+        ->name('cash-flow.index');
+
+});
 });
 
 require __DIR__.'/auth.php';

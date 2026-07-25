@@ -1,88 +1,206 @@
 <x-app-layout>
 
-    <x-slot name="header">
-        <h2 class="text-2xl font-semibold">
-            Profit & Loss Statement
-        </h2>
-    </x-slot>
+<x-slot name="header">
+    <h2 class="text-2xl font-semibold">
+        Profit & Loss Statement
+    </h2>
+</x-slot>
 
-    <div class="py-8">
-        <div class="max-w-6xl mx-auto">
+<div class="py-8">
 
-            <div class="bg-white shadow rounded-lg p-6">
+<div class="max-w-7xl mx-auto">
 
-                @php
-                    $totalIncome = 0;
-                    $totalExpense = 0;
-                @endphp
+<div class="bg-white shadow rounded p-6">
 
-                <h3 class="text-xl font-bold mb-3">Income</h3>
+@php
 
-                <table class="w-full border mb-6">
+$totalIncome=0;
+$totalExpense=0;
 
-                    @foreach($incomeAccounts as $account)
+@endphp
 
-                        @php
-                            $amount = $account->ledgerEntries->sum('credit')
-                                    - $account->ledgerEntries->sum('debit');
+<h3 class="text-lg font-bold mb-3">
+Income
+</h3>
 
-                            $totalIncome += $amount;
-                        @endphp
+<table class="w-full border mb-8">
 
-                        <tr>
-                            <td class="border p-2">
-                                {{ $account->account_name }}
-                            </td>
+<thead>
 
-                            <td class="border p-2 text-right">
-                                {{ number_format($amount,2) }}
-                            </td>
-                        </tr>
+<tr>
 
-                    @endforeach
+<th class="border p-2">
+Code
+</th>
 
-                </table>
+<th class="border p-2">
+Account
+</th>
 
-                <h3 class="text-xl font-bold mb-3">Expenses</h3>
+<th class="border p-2 text-right">
+Amount
+</th>
 
-                <table class="w-full border">
+</tr>
 
-                    @foreach($expenseAccounts as $account)
+</thead>
 
-                        @php
-                            $amount = $account->ledgerEntries->sum('debit')
-                                    - $account->ledgerEntries->sum('credit');
+<tbody>
 
-                            $totalExpense += $amount;
-                        @endphp
+@foreach($incomeAccounts as $account)
 
-                        <tr>
-                            <td class="border p-2">
-                                {{ $account->account_name }}
-                            </td>
+@php
 
-                            <td class="border p-2 text-right">
-                                {{ number_format($amount,2) }}
-                            </td>
-                        </tr>
+$amount=$account->ledgerEntries->sum('credit');
 
-                    @endforeach
+$totalIncome+=$amount;
 
-                    <tr class="bg-gray-100 font-bold">
-                        <td class="border p-2">
-                            Net Profit
-                        </td>
+@endphp
 
-                        <td class="border p-2 text-right">
-                            {{ number_format($totalIncome - $totalExpense,2) }}
-                        </td>
-                    </tr>
+<tr>
 
-                </table>
+<td class="border p-2">
 
-            </div>
+{{ $account->account_code }}
 
-        </div>
-    </div>
+</td>
+
+<td class="border p-2">
+
+{{ $account->account_name }}
+
+</td>
+
+<td class="border p-2 text-right">
+
+{{ number_format($amount,2) }}
+
+</td>
+
+</tr>
+
+@endforeach
+
+<tr class="font-bold bg-green-100">
+
+<td colspan="2" class="border p-2">
+
+Total Income
+
+</td>
+
+<td class="border p-2 text-right">
+
+{{ number_format($totalIncome,2) }}
+
+</td>
+
+</tr>
+
+</tbody>
+
+</table>
+
+
+
+<h3 class="text-lg font-bold mb-3">
+
+Expenses
+
+</h3>
+
+<table class="w-full border">
+
+<thead>
+
+<tr>
+
+<th class="border p-2">
+Code
+</th>
+
+<th class="border p-2">
+Account
+</th>
+
+<th class="border p-2 text-right">
+Amount
+</th>
+
+</tr>
+
+</thead>
+
+<tbody>
+
+@foreach($expenseAccounts as $account)
+
+@php
+
+$amount=$account->ledgerEntries->sum('debit');
+
+$totalExpense+=$amount;
+
+@endphp
+
+<tr>
+
+<td class="border p-2">
+
+{{ $account->account_code }}
+
+</td>
+
+<td class="border p-2">
+
+{{ $account->account_name }}
+
+</td>
+
+<td class="border p-2 text-right">
+
+{{ number_format($amount,2) }}
+
+</td>
+
+</tr>
+
+@endforeach
+
+<tr class="font-bold bg-red-100">
+
+<td colspan="2" class="border p-2">
+
+Total Expense
+
+</td>
+
+<td class="border p-2 text-right">
+
+{{ number_format($totalExpense,2) }}
+
+</td>
+
+</tr>
+
+</tbody>
+
+</table>
+
+<hr class="my-6">
+
+<h2 class="text-2xl font-bold">
+
+Net Profit :
+
+{{ number_format($totalIncome-$totalExpense,2) }}
+
+</h2>
+
+</div>
+
+</div>
+
+</div>
 
 </x-app-layout>

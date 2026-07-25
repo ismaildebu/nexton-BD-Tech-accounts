@@ -10,15 +10,20 @@ class ProfitLossController extends Controller
     {
         $incomeAccounts = Account::with('ledgerEntries')
             ->where('account_type', 'Income')
+            ->orderBy('account_code')
             ->get();
 
         $expenseAccounts = Account::with('ledgerEntries')
             ->where('account_type', 'Expense')
+            ->orderBy('account_code')
             ->get();
 
-        return view('profit-loss.index', compact(
-            'incomeAccounts',
-            'expenseAccounts'
-        ));
+        return view(
+            'profit-loss.index',
+            compact(
+                'incomeAccounts',
+                'expenseAccounts'
+            )
+        );
     }
 }
