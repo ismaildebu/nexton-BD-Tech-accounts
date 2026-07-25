@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Transaction extends Model
 {
+
     protected $fillable = [
 
         'company_id',
@@ -21,6 +22,10 @@ class Transaction extends Model
         'transaction_type',
 
         'account_id',
+
+        'debit_account_id',
+
+        'credit_account_id',
 
         'amount',
 
@@ -44,8 +49,11 @@ class Transaction extends Model
 
     public function company()
     {
-        return $this->belongsTo(Company::class);
+        return $this->belongsTo(
+            Company::class
+        );
     }
+
 
 
 
@@ -57,8 +65,11 @@ class Transaction extends Model
 
     public function financialYear()
     {
-        return $this->belongsTo(FinancialYear::class);
+        return $this->belongsTo(
+            FinancialYear::class
+        );
     }
+
 
 
 
@@ -71,21 +82,62 @@ class Transaction extends Model
 
     public function voucherType()
     {
-        return $this->belongsTo(VoucherType::class);
+        return $this->belongsTo(
+            VoucherType::class
+        );
     }
+
 
 
 
 
     /*
     |--------------------------------------------------------------------------
-    | Account
+    | Default Account (Legacy Support)
     |--------------------------------------------------------------------------
     */
 
     public function account()
     {
-        return $this->belongsTo(Account::class);
+        return $this->belongsTo(
+            Account::class
+        );
+    }
+
+
+
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Debit Account
+    |--------------------------------------------------------------------------
+    */
+
+    public function debitAccount()
+    {
+        return $this->belongsTo(
+            Account::class,
+            'debit_account_id'
+        );
+    }
+
+
+
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Credit Account
+    |--------------------------------------------------------------------------
+    */
+
+    public function creditAccount()
+    {
+        return $this->belongsTo(
+            Account::class,
+            'credit_account_id'
+        );
     }
 
 
@@ -100,7 +152,9 @@ class Transaction extends Model
 
     public function entries()
     {
-        return $this->hasMany(LedgerEntry::class);
+        return $this->hasMany(
+            LedgerEntry::class
+        );
     }
 
 
@@ -109,13 +163,16 @@ class Transaction extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | User
+    | Created User
     |--------------------------------------------------------------------------
     */
 
     public function user()
     {
-        return $this->belongsTo(User::class, 'created_by');
+        return $this->belongsTo(
+            User::class,
+            'created_by'
+        );
     }
 
 }

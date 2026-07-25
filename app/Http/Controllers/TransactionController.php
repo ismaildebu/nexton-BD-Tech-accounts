@@ -13,123 +13,125 @@ use Illuminate\Support\Facades\DB;
 class TransactionController extends Controller
 {
     /**
-     * Display a listing of the resource.
+     * Transaction List
      */
     public function index()
-{
-    $companyId = session('company_id');
+    {
+        $companyId = session('company_id');
 
+        if (!$companyId) {
+            return redirect()
+                ->route('dashboard')
+                ->with('error', 'Please select company first.');
+        }
 
-    $transactions = Transaction::with([
-        'company',
-        'account',
-        'user'
-    ])
-    ->where('company_id', $companyId)
-    ->latest()
-    ->paginate(20);
+        $transactions = Transaction::with([
+            'company',
+            'account',
+            'user'
+        ])
+        ->where('company_id', $companyId)
+        ->latest()
+        ->paginate(20);
 
-
-    return view('transactions.index', compact('transactions'));
-}
-    
+        return view('transactions.index', compact('transactions'));
+    }
 
     /**
      * Show the form for creating a new resource.
      */
-  public function create()
-{
-    $companyId = session('company_id');
+    public function create()
+    {
+        $companyId = session('company_id');
 
-    if(!$companyId){
-        return redirect()
-            ->route('dashboard')
-            ->with('error','Please select company first.');
+        if (!$companyId) {
+            return redirect()
+                ->route('dashboard')
+                ->with('error', 'Please select company first.');
+        }
+
+        $company = Company::findOrFail($companyId);
+
+        $accounts = Account::where('company_id', $companyId)
+            ->orderBy('account_code')
+            ->get();
+
+        return view('transactions.create', compact('company', 'accounts'));
     }
-
-
-    $company = Company::findOrFail($companyId);
-
-
-    $accounts = Account::where('company_id', $companyId)
-        ->orderBy('account_code')
-        ->get();
-
-
-    return view('transactions.create', compact(
-        'company',
-        'accounts'
-    ));
-}
 
     /**
      * Store a newly created resource in storage.
      */
     public function store(Request $request)
     {
+        $companyId = session('company_id');
+
+        if (!$companyId) {
+            return redirect()
+                ->route('dashboard')
+                ->with('error', 'Please select company first.');
+        }
+
         $request->validate([
-            
-            'debit_account_id'  => 'required|exists:accounts,id',
+            'debit_account_id' => 'required|exists:accounts,id',
             'credit_account_id' => 'required|exists:accounts,id|different:debit_account_id',
-            'transaction_date'  => 'required|date',
-            'transaction_type'  => 'required|in:Income,Expense,Journal',
-            'amount'            => 'required|numeric|min:0.01',
-            'description'       => 'nullable|string',
+            'transaction_date' => 'required|date',
+            'transaction_type' => 'required|in:Income,Expense,Journal',
+            'amount' => 'required|numeric|min:0.01',
+            'description' => 'nullable|string',
         ]);
 
-        DB::transaction(function () use ($request) {
-
-            $prefix = match ($request->transaction_type) {
+        DB::transaction(function () use ($request, $companyId) {
+            // Voucher Number Generate
+            $prefix = match($request->transaction_type) {
                 'Income' => 'INC',
                 'Expense' => 'EXP',
-                default   => 'JV',
+                default => 'JV',
             };
 
-            $last = Transaction::latest()->first();
+            $last = Transaction::where('company_id', $companyId)
+                ->where('transaction_type', $request->transaction_type)
+                ->latest('id')
+                ->first();
 
-            $next = $last
-                ? ((int) substr($last->voucher_no, 4)) + 1
-                : 1;
-
+            $next = $last ? ((int) substr($last->voucher_no, 4)) + 1 : 1;
+            
             $voucherNo = $prefix . '-' . str_pad($next, 6, '0', STR_PAD_LEFT);
 
+            // Transaction Create
             $transaction = Transaction::create([
-                'company_id'        => $request->company_id,
-
-                // Legacy Field
-                'account_id'        => $request->debit_account_id,
-
-                'debit_account_id'  => $request->debit_account_id,
+                'company_id' => $companyId,
+                'account_id' => $request->debit_account_id,
+                'debit_account_id' => $request->debit_account_id,
                 'credit_account_id' => $request->credit_account_id,
-
-                'transaction_date'  => $request->transaction_date,
-                'voucher_no'        => $voucherNo,
-                'transaction_type'  => $request->transaction_type,
-                'amount'            => $request->amount,
-                'description'       => $request->description,
-                'created_by'        => Auth::id(),
+                'transaction_date' => $request->transaction_date,
+                'voucher_no' => $voucherNo,
+                'transaction_type' => $request->transaction_type,
+                'amount' => $request->amount,
+                'description' => $request->description,
+                'created_by' => Auth::id(),
             ]);
 
-            // Debit Entry
+            // Debit Ledger Entry
             LedgerEntry::create([
                 'transaction_id' => $transaction->id,
-                'company_id'     => $request->company_id,
-                'account_id'     => $request->debit_account_id,
-                'entry_date'     => $request->transaction_date,
-                'debit'          => $request->amount,
-                'credit'         => 0,
-                'description'    => $request->description,
+                'company_id' => $companyId,
+                'account_id' => $request->debit_account_id,
+                'entry_date' => $request->transaction_date,
+                'debit' => $request->amount,
+                'credit' => 0,
+                'description' => $request->description,
             ]);
 
-            // Credit Entry
+            // Credit Ledger Entry
             LedgerEntry::create([
                 'transaction_id' => $transaction->id,
-                'company_id'     => $request->company_id,
-                'account_id'     => $request->credit_account_id,
-                'entry_date'     => $request->transaction_date,
-                'debit'          => 0,
-                'credit'         => $request->amount,
-                'description'    => $request->description,
+                'company_id' => $companyId,
+                'account_id' => $request->credit_account_id,
+                'entry_date' => $request->transaction_date,
+                'debit' => 0,
+                'credit' => $request->amount,
+                'description' => $request->description,
             ]);
         });
 
@@ -137,11 +139,19 @@ class TransactionController extends Controller
             ->route('transactions.index')
             ->with('success', 'Transaction posted successfully.');
     }
-        /**
-     * Display the specified resource.
+
+    /**
+     * Show the specified resource.
      */
     public function show(Transaction $transaction)
     {
+        $companyId = session('company_id');
+
+        // সিকিউরিটি চেক: ট্রানজেকশনটি বর্তমান কোম্পানির কিনা
+        if ($transaction->company_id != $companyId) {
+            abort(403, 'Unauthorized action.');
+        }
+
         return view('transactions.show', compact('transaction'));
     }
 
@@ -150,89 +160,114 @@ class TransactionController extends Controller
      */
     public function edit(Transaction $transaction)
     {
-        $companies = Company::orderBy('company_name')->get();
-        $accounts  = Account::orderBy('account_code')->get();
+        $companyId = session('company_id');
 
-        return view('transactions.edit', compact(
-            'transaction',
-            'companies',
-            'accounts'
-        ));
+        if (!$companyId) {
+            return redirect()
+                ->route('dashboard')
+                ->with('error', 'Please select company first.');
+        }
+
+        // সিকিউরিটি চেক: ট্রানজেকশনটি বর্তমান কোম্পানির কিনা
+        if ($transaction->company_id != $companyId) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $company = Company::findOrFail($companyId);
+
+        $accounts = Account::where('company_id', $companyId)
+            ->orderBy('account_code')
+            ->get();
+
+        return view('transactions.edit', compact('transaction', 'company', 'accounts'));
     }
 
     /**
-     * Update the specified resource.
+     * Update the specified resource in storage.
      */
     public function update(Request $request, Transaction $transaction)
     {
+        $companyId = session('company_id');
+
+        if (!$companyId) {
+            return redirect()
+                ->route('dashboard')
+                ->with('error', 'Please select company first.');
+        }
+
+        // সিকিউরিটি চেক: ট্রানজেকশনটি বর্তমান কোম্পানির কিনা
+        if ($transaction->company_id != $companyId) {
+            abort(403, 'Unauthorized action.');
+        }
+
         $request->validate([
-            'company_id'        => 'required|exists:companies,id',
-            'debit_account_id'  => 'required|exists:accounts,id',
+            'debit_account_id' => 'required|exists:accounts,id',
             'credit_account_id' => 'required|exists:accounts,id|different:debit_account_id',
-            'transaction_date'  => 'required|date',
-            'transaction_type'  => 'required|in:Income,Expense,Journal',
-            'amount'            => 'required|numeric|min:0.01',
-            'description'       => 'nullable|string',
+            'transaction_date' => 'required|date',
+            'transaction_type' => 'required|in:Income,Expense,Journal',
+            'amount' => 'required|numeric|min:0.01',
+            'description' => 'nullable|string',
         ]);
 
-        DB::transaction(function () use ($request, $transaction) {
-
-            // পুরনো Ledger Entry মুছে ফেলুন
+        DB::transaction(function () use ($request, $transaction, $companyId) {
+            // পুরাতন Ledger Entry Delete
             LedgerEntry::where('transaction_id', $transaction->id)->delete();
 
             // Transaction Update
             $transaction->update([
-                'company_id'        => $request->company_id,
-                'account_id'        => $request->debit_account_id,
-                'debit_account_id'  => $request->debit_account_id,
+                'company_id' => $companyId,
+                'account_id' => $request->debit_account_id,
+                'debit_account_id' => $request->debit_account_id,
                 'credit_account_id' => $request->credit_account_id,
-                'transaction_date'  => $request->transaction_date,
-                'transaction_type'  => $request->transaction_type,
-                'amount'            => $request->amount,
-                'description'       => $request->description,
+                'transaction_date' => $request->transaction_date,
+                'transaction_type' => $request->transaction_type,
+                'amount' => $request->amount,
+                'description' => $request->description,
             ]);
 
-            // Debit Entry
+            // Debit Ledger
             LedgerEntry::create([
                 'transaction_id' => $transaction->id,
-                'company_id'     => $request->company_id,
-                'account_id'     => $request->debit_account_id,
-                'entry_date'     => $request->transaction_date,
-                'debit'          => $request->amount,
-                'credit'         => 0,
-                'description'    => $request->description,
+                'company_id' => $companyId,
+                'account_id' => $request->debit_account_id,
+                'entry_date' => $request->transaction_date,
+                'debit' => $request->amount,
+                'credit' => 0,
+                'description' => $request->description,
             ]);
 
-            // Credit Entry
+            // Credit Ledger
             LedgerEntry::create([
                 'transaction_id' => $transaction->id,
-                'company_id'     => $request->company_id,
-                'account_id'     => $request->credit_account_id,
-                'entry_date'     => $request->transaction_date,
-                'debit'          => 0,
-                'credit'         => $request->amount,
-                'description'    => $request->description,
+                'company_id' => $companyId,
+                'account_id' => $request->credit_account_id,
+                'entry_date' => $request->transaction_date,
+                'debit' => 0,
+                'credit' => $request->amount,
+                'description' => $request->description,
             ]);
-
         });
 
         return redirect()
             ->route('transactions.index')
             ->with('success', 'Transaction updated successfully.');
     }
-        /**
+
+    /**
      * Remove the specified resource from storage.
      */
     public function destroy(Transaction $transaction)
     {
+        $companyId = session('company_id');
+
+        // সিকিউরিটি চেক: ট্রানজেকশনটি বর্তমান কোম্পানির কিনা
+        if ($transaction->company_id != $companyId) {
+            abort(403, 'Unauthorized action.');
+        }
+
         DB::transaction(function () use ($transaction) {
-
-            // Delete all related ledger entries
             LedgerEntry::where('transaction_id', $transaction->id)->delete();
-
-            // Delete transaction
             $transaction->delete();
-
         });
 
         return redirect()

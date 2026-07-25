@@ -2,9 +2,8 @@
 
     <x-slot name="header">
         <h2 class="font-semibold text-2xl text-gray-800">
-    Edit Account
-</h2>
-    
+            Edit Account
+        </h2>
     </x-slot>
 
     <div class="py-8">
@@ -22,7 +21,7 @@
                     </div>
                 @endif
 
-                <form action="{{ route('accounts.update', $account) }}" method="POST">
+                <form action="{{ route('accounts.update',$account->id) }}" method="POST">
                     @csrf
                     @method('PUT')
 
@@ -30,18 +29,11 @@
                     <div class="mb-4">
                         <label class="block font-semibold mb-2">Company</label>
 
-                        <select name="company_id" class="w-full border rounded px-3 py-2" required>
-                            <option value="">-- Select Company --</option>
-                        
-                            @foreach($companies as $company)
-                            <option value="{{ $company->id }}"
-                                {{ old('company_id', $account->company_id) == $company->id ? 'selected' : '' }}>
-                                 {{ $company->company_name }}
-                             </option>
-                        @endforeach
-                            
-                            
-                        </select>
+                        <input
+                            type="text"
+                            class="w-full border rounded px-3 py-2 bg-gray-100"
+                            value="{{ $account->company->company_name ?? '' }}"
+                            readonly>
                     </div>
 
                     <!-- Account Code -->
@@ -50,12 +42,10 @@
 
                         <input
                             type="text"
-                            name="account_code"
-                            value="{{ old('account_code', $account->account_code) }}"
-                            class="w-full border rounded px-3 py-2"
-                            placeholder="1001">
-                        
-                        </div>
+                            class="w-full border rounded px-3 py-2 bg-gray-100"
+                            value="{{ $account->account_code }}"
+                            readonly>
+                    </div>
 
                     <!-- Account Name -->
                     <div class="mb-4">
@@ -64,109 +54,96 @@
                         <input
                             type="text"
                             name="account_name"
-                            value="{{ old('account_name', $account->account_name) }}"
                             class="w-full border rounded px-3 py-2"
-                            required
-                            placeholder="Cash">
+                            value="{{ old('account_name',$account->account_name) }}"
+                            required>
                     </div>
 
                     <!-- Account Type -->
                     <div class="mb-4">
                         <label class="block font-semibold mb-2">Account Type</label>
 
-                        <select name="account_type" class="w-full border rounded px-3 py-2" required>
-                            <option value="">-- Select Type --</option>
-                            
-                         <option value="Asset"
-                            {{ old('account_type', $account->account_type) == 'Asset' ? 'selected' : '' }}>
-                            Asset
-                        </option>
-
-                        <option value="Liability"
-                            {{ old('account_type', $account->account_type) == 'Liability' ? 'selected' : '' }}>
-                            Liability
-                        </option>
-
-                        <option value="Equity"
-                            {{ old('account_type', $account->account_type) == 'Equity' ? 'selected' : '' }}>
-                            Equity
-                        </option>
-
-                        <option value="Income"
-                            {{ old('account_type', $account->account_type) == 'Income' ? 'selected' : '' }}>
-                            Income
-                        </option>
-
-                        <option value="Expense"
-                            {{ old('account_type', $account->account_type) == 'Expense' ? 'selected' : '' }}>
-                            Expense
-                        </option>   
-                            
-                        </select>
+                        <input
+                            type="text"
+                            class="w-full border rounded px-3 py-2 bg-gray-100"
+                            value="{{ $account->account_type }}"
+                            readonly>
                     </div>
 
-                    <!-- Parent Account -->
+                    <!-- Nature -->
                     <div class="mb-4">
-                        <label class="block font-semibold mb-2">Parent Account</label>
+                        <label class="block font-semibold mb-2">Nature</label>
 
-                        <select name="parent_id" class="w-full border rounded px-3 py-2">
-                           
-                        <option value="">None</option>
-                            @foreach($parentAccounts as $parent)
-                                <option value="{{ $parent->id }}"
-                                    {{ old('parent_id', $account->parent_id) == $parent->id ? 'selected' : '' }}>
-                                    {{ $parent->account_name }}
-                                </option>
-                            @endforeach
+                        <select name="nature" class="w-full border rounded px-3 py-2">
+
+                            <option value="General" {{ $account->nature=='General'?'selected':'' }}>
+                                General
+                            </option>
+
+                            <option value="Cash" {{ $account->nature=='Cash'?'selected':'' }}>
+                                Cash
+                            </option>
+
+                            <option value="Bank" {{ $account->nature=='Bank'?'selected':'' }}>
+                                Bank
+                            </option>
+
                         </select>
                     </div>
 
                     <!-- Opening Balance -->
+                    @if(!$hasTransactions)
+
                     <div class="mb-4">
                         <label class="block font-semibold mb-2">Opening Balance</label>
 
-                      <input
+                        <input
                             type="number"
                             step="0.01"
                             name="opening_balance"
-                            value="{{ old('opening_balance', $account->opening_balance) }}"
-                            class="w-full border rounded px-3 py-2">  
-                                                
-                         </div>
+                            value="{{ old('opening_balance',$account->opening_balance) }}"
+                            class="w-full border rounded px-3 py-2">
+                    </div>
 
-                    <!-- Balance Type -->
+                    @endif
+
+                    <!-- Color -->
                     <div class="mb-4">
-                        <label class="block font-semibold mb-2">Balance Type</label>
+                        <label class="block font-semibold mb-2">Color</label>
 
-                        <select name="balance_type" class="w-full border rounded px-3 py-2">
-                           <option value="Debit"
-                                {{ old('balance_type', $account->balance_type) == 'Debit' ? 'selected' : '' }}>
-                                Debit
+                        <input
+                            type="color"
+                            name="color"
+                            value="{{ old('color',$account->color ?? '#2563eb') }}">
+                    </div>
+
+                    <!-- Status -->
+                    <div class="mb-6">
+                        <label class="block font-semibold mb-2">Status</label>
+
+                        <select name="is_active" class="w-full border rounded px-3 py-2">
+
+                            <option value="1" {{ $account->is_active ? 'selected':'' }}>
+                                Active
                             </option>
 
-                            <option value="Credit"
-                                {{ old('balance_type', $account->balance_type) == 'Credit' ? 'selected' : '' }}>
-                                Credit
-                            </option> 
-                            
+                            <option value="0" {{ !$account->is_active ? 'selected':'' }}>
+                                Inactive
+                            </option>
+
                         </select>
                     </div>
 
                     <div class="flex gap-3">
 
-                        <button
-                            type="submit"
+                        <button type="submit"
                             class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded">
-
-                            Save Account
-
+                            Update Account
                         </button>
 
                         <a href="{{ route('accounts.index') }}"
                            class="bg-gray-500 hover:bg-gray-600 text-white px-5 py-2 rounded">
-
                             Cancel
-
                         </a>
 
                     </div>

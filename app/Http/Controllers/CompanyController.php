@@ -6,10 +6,10 @@ use App\Models\Company;
 use App\Models\Account;
 use App\Models\AccountTemplate;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class CompanyController extends Controller
 {
-
     /**
      * Company List
      */
@@ -20,144 +20,67 @@ class CompanyController extends Controller
         return view('companies.index', compact('companies'));
     }
 
-
-
     /**
      * Create Company Form
      */
     public function create()
     {
-        $accountTemplates = AccountTemplate::orderBy('account_code')
-            ->get();
+        $accountTemplates = AccountTemplate::orderBy('account_code')->get();
 
         return view('companies.create', compact('accountTemplates'));
     }
 
-
-
     /**
      * Store Company
      */
+    
     public function store(Request $request)
-    {
+{
+    
+$request->validate([
+    'company_name'  => 'required|string|max:255',
+    'business_type' => 'required|string',
 
-        $request->validate([
-
-            'company_name' => 'required|max:255',
-
-            'accounts' => 'nullable|array',
-
-        ]);
-
-
-
-        // Create Company
-
-       $company = Company::create([
-
-    'company_name' => $request->company_name,
-
-    'business_type' => $request->business_type,
-
+    'accounts'      => 'required|array|min:1',
+    'accounts.*'    => 'exists:account_templates,id',
 ]);
 
+    DB::transaction(function () use ($request) {
 
+        $company = Company::create([
+            'company_name'  => $request->company_name,
+            'business_type' => $request->business_type,
+        ]);
 
-        // Create Selected Accounts
+        $templates = AccountTemplate::whereIn('id', $request->accounts)
+    ->orderBy('account_code')
+    ->get();
 
-        if($request->accounts)
-        {
+        foreach ($templates as $template) {
 
-            foreach($request->accounts as $template_id)
-            {
-
-                $template = AccountTemplate::find($template_id);
-
-
-                if($template)
-                {
-
-                    Account::create([
-
-                        'company_id' => $company->id,
-
-                        'account_code' => $this->generateAccountCode(
-                            $template->account_type
-                        ),
-
-                        'account_name' => $template->account_name,
-
-                        'account_type' => $template->account_type,
-
-                        'opening_balance' => 0,
-
-                        'balance_type' => $template->balance_type,
-
-                    ]);
-
-                }
-
-            }
+            Account::create([
+                'company_id'      => $company->id,
+                'account_code'    => $template->account_code,
+                'account_name'    => $template->account_name,
+                'account_type'    => $template->account_type,
+                'nature'          => $template->nature,
+                'parent_id'       => null,
+                'level'           => 1,
+                'color'           => null,
+                'is_system'       => $template->is_system,
+                'is_active'       => $template->is_active,
+                'opening_balance' => 0,
+                'balance_type'    => $template->balance_type,
+            ]);
 
         }
 
+    });
 
-
-        return redirect()
-
-            ->route('companies.index')
-
-            ->with('success','Company created successfully.');
-
-    }
-
-
-
-
-    /**
-     * Generate Account Code
-     */
-    private function generateAccountCode($type)
-    {
-
-        $prefix = [
-
-            'Asset'=>1000,
-
-            'Expense'=>2000,
-
-            'Liability'=>3000,
-
-            'Equity'=>4000,
-
-            'Income'=>5000,
-
-        ];
-
-
-
-        $lastAccount = Account::where('account_type',$type)
-
-            ->orderBy('account_code','desc')
-
-            ->first();
-
-
-
-        if($lastAccount)
-        {
-            return $lastAccount->account_code + 1;
-        }
-
-
-
-        return $prefix[$type] + 1;
-
-    }
-
-
-
-
+    return redirect()
+        ->route('companies.index')
+        ->with('success', 'Company created successfully.');
+}
 
     /**
      * Edit Company
@@ -169,67 +92,39 @@ class CompanyController extends Controller
         return view('companies.edit', compact('company'));
     }
 
-
-
-
     /**
      * Update Company
      */
     public function update(Request $request, string $id)
     {
-
-      $request->validate([
-
-    'company_name' => 'required|max:255',
-
-    'business_type' => 'required',
-
-    'accounts' => 'nullable|array',
-
-]);
-
-
+        $request->validate([
+            'company_name'  => 'required|string|max:255',
+            'business_type' => 'required|string',
+        ]);
 
         $company = Company::findOrFail($id);
 
-
         $company->update([
-
-            'company_name'=>$request->company_name,
-
+            'company_name'  => $request->company_name,
+            'business_type' => $request->business_type,
         ]);
 
-
-
         return redirect()
-
             ->route('companies.index')
-
-            ->with('success','Company updated successfully.');
-
+            ->with('success', 'Company updated successfully.');
     }
-
-
-
-
 
     /**
      * Delete Company
      */
     public function destroy(string $id)
     {
-
         $company = Company::findOrFail($id);
 
         $company->delete();
 
-
         return redirect()
-
             ->route('companies.index')
-
-            ->with('success','Company deleted successfully.');
-
+            ->with('success', 'Company deleted successfully.');
     }
-
 }

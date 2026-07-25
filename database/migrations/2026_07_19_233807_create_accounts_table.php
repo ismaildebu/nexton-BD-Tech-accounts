@@ -16,41 +16,48 @@ return new class extends Migration
             $table->id();
 
             $table->foreignId('company_id')
-                  ->constrained()
-                  ->cascadeOnDelete();
+                ->constrained()
+                ->cascadeOnDelete();
 
-            $table->string('account_code')
-                  ->nullable();
+            $table->integer('account_code')->nullable();
 
             $table->string('account_name');
 
             $table->enum('account_type', [
-    'Asset',
-    'Liability',
-    'Equity',
-    'Income',
-    'Expense'
-]);
-            
+                'Asset',
+                'Liability',
+                'Equity',
+                'Income',
+                'Expense',
+            ]);
+
+            $table->string('nature')->default('General');
 
             $table->foreignId('parent_id')
-                  ->nullable()
-                  ->constrained('accounts')
-                  ->nullOnDelete();
+                ->nullable()
+                ->constrained('accounts')
+                ->nullOnDelete();
 
-            $table->decimal('opening_balance', 15, 2)
-                  ->default(0);
+            $table->unsignedTinyInteger('level')->default(1);
+
+            $table->string('color', 20)->nullable();
+
+            $table->boolean('is_system')->default(false);
+
+            $table->boolean('is_active')->default(true);
+
+            $table->decimal('opening_balance', 15, 2)->default(0);
 
             $table->enum('balance_type', [
                 'Debit',
-                'Credit'
+                'Credit',
             ])->default('Debit');
 
             $table->timestamps();
 
+            $table->softDeletes();
         });
     }
-
 
     /**
      * Reverse the migrations.

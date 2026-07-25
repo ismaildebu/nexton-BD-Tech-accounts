@@ -132,20 +132,48 @@ class AccountController extends Controller
     /**
      * Show form for editing an account
      */
-    public function edit(string $id)
-    {
-        $companyId = session('company_id', auth()->user()->company_id ?? null);
-        $account = Account::forCompany($companyId)->findOrFail($id);
+    
+    /**
+ * Show form for editing an account
+ */
+public function edit(string $id)
+{
+    $companyId = session('company_id', auth()->user()->company_id ?? null);
 
-        $parentAccounts = Account::forCompany($companyId)
-            ->where('id', '!=', $id)
-            ->orderBy('account_code', 'asc')
-            ->get();
+    $account = Account::forCompany($companyId)->findOrFail($id);
 
-        $hasTransactions = $account->hasTransactions();
+    // Company List
+    $companies = auth()->user()->companies ?? Company::where('id', $companyId)->get();
 
-        return view('accounts.edit', compact('account', 'parentAccounts', 'hasTransactions'));
-    }
+    // Parent Accounts
+    $parentAccounts = Account::forCompany($companyId)
+        ->where('id', '!=', $id)
+        ->orderBy('account_code', 'asc')
+        ->get();
+
+    $hasTransactions = $account->hasTransactions();
+
+    return view('accounts.edit', compact(
+        'account',
+        'companies',
+        'parentAccounts',
+        'hasTransactions'
+    ));
+}
+
+/**
+ * Display Account Details
+ */
+public function show(string $id)
+{
+    $companyId = session('company_id', auth()->user()->company_id ?? null);
+
+    $account = Account::forCompany($companyId)
+        ->with(['company', 'parent'])
+        ->findOrFail($id);
+
+    return view('accounts.show', compact('account'));
+}
 
     /**
      * Update account details
