@@ -1,291 +1,165 @@
-/**
- * Show the form for creating a new resource.
- */
-public function create()
-{
-    $companyId = session('company_id');
 
+<x-app-layout>
+
+<x-slot name="header">
+    <div class="flex justify-between items-center">
+        <h2 class="font-semibold text-2xl text-gray-800">
+            Add Transaction
+        </h2>
+
+        <a href="{{ route('transactions.index') }}"
+           class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded">
+            Back
+        </a>
+    </div>
+</x-slot>
+
+<div class="py-8">
+<div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
+
+@section('content')
+<div class="container-fluid">
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4>Add Transaction</h4>
+
+        <a href="{{ route('transactions.index') }}" class="btn btn-secondary">
+            Back
+        </a>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+
+            @if ($errors->any())
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach($errors->all() as $error)
+                            <li>{{ $error }}</li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
+
+            <form action="{{ route('transactions.store') }}" method="POST">
+                @csrf
+
+                <div class="row">
+
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Company</label>
+                        <input
+                            type="text"
+                            class="form-control"
+                            value="{{ $company->company_name }}"
+                            readonly>
+                    </div>
+
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Transaction Date</label>
+                        <input
+                            type="date"
+                            name="transaction_date"
+                            class="form-control"
+                            value="{{ old('transaction_date', date('Y-m-d')) }}"
+                            required>
+                    </div>
+
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Transaction Type</label>
+
+                        <select
+                            name="transaction_type"
+                            class="form-select"
+                            required>
+
+                            <option value="">Select</option>
+
+                            <option value="Income">Income</option>
+
+                            <option value="Expense">Expense</option>
+
+                            <option value="Journal">Journal</option>
+
+                        </select>
+                    </div>
+
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Amount</label>
+
+                        <input
+                            type="number"
+                            step="0.01"
+                            name="amount"
+                            class="form-control"
+                            value="{{ old('amount') }}"
+                            required>
+                    </div>
+
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Debit Account</label>
+
+                        <select
+                            name="debit_account_id"
+                            class="form-select"
+                            required>
 
-    if(!$companyId){
+                            <option value="">Select Account</option>
 
-        return redirect()
-            ->route('dashboard')
-            ->with('error','Please select company first.');
+                            @foreach($accounts as $account)
+                                <option value="{{ $account->id }}">
+                                    {{ $account->account_code }}
+                                    -
+                                    {{ $account->account_name }}
+                                </option>
+                            @endforeach
 
-    }
+                        </select>
+                    </div>
 
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Credit Account</label>
 
+                        <select
+                            name="credit_account_id"
+                            class="form-select"
+                            required>
 
-    $company = Company::findOrFail($companyId);
+                            <option value="">Select Account</option>
 
+                            @foreach($accounts as $account)
+                                <option value="{{ $account->id }}">
+                                    {{ $account->account_code }}
+                                    -
+                                    {{ $account->account_name }}
+                                </option>
+                            @endforeach
 
+                        </select>
+                    </div>
 
-    $accounts = Account::where('company_id', $companyId)
+                    <div class="col-md-12 mb-3">
+                        <label class="form-label">Description</label>
 
-        ->orderBy('account_code')
+                        <textarea
+                            name="description"
+                            rows="4"
+                            class="form-control">{{ old('description') }}</textarea>
+                    </div>
 
-        ->get();
+                </div>
 
+                <button class="btn btn-primary">
+                    Save Transaction
+                </button>
 
+            </form>
 
-    return view('transactions.create', compact(
+        </div>
+    </div>
 
-        'company',
+</div>
+</div>
+</div>
 
-        'accounts'
-
-    ));
-
-}
-
-
-
-
-
-/**
- * Store a newly created resource in storage.
- */
-public function store(Request $request)
-{
-
-
-    $request->validate([
-
-
-        'company_id' => 'required|exists:companies,id',
-
-
-        'debit_account_id' => 'required|exists:accounts,id',
-
-
-        'credit_account_id' => 
-        'required|exists:accounts,id|different:debit_account_id',
-
-
-        'transaction_date' => 'required|date',
-
-
-        'transaction_type' => 
-        'required|in:Income,Expense,Journal',
-
-
-        'amount' => 'required|numeric|min:0.01',
-
-
-        'description' => 'nullable|string',
-
-
-    ]);
-
-
-
-
-
-    DB::transaction(function () use ($request) {
-
-
-
-        // Voucher Number Generate
-
-        $prefix = match($request->transaction_type){
-
-
-            'Income' => 'INC',
-
-
-            'Expense' => 'EXP',
-
-
-            default => 'JV',
-
-        };
-
-
-
-
-
-        $last = Transaction::latest()->first();
-
-
-
-        $next = $last
-
-            ? ((int) substr($last->voucher_no,4)) + 1
-
-            : 1;
-
-
-
-
-
-        $voucherNo = $prefix.'-'.str_pad(
-
-            $next,
-
-            6,
-
-            '0',
-
-            STR_PAD_LEFT
-
-        );
-
-
-
-
-
-
-
-        // Transaction Create
-
-        $transaction = Transaction::create([
-
-
-
-            'company_id' => $request->company_id,
-
-
-
-            // legacy account field
-
-            'account_id' => $request->debit_account_id,
-
-
-
-            'debit_account_id' => 
-            $request->debit_account_id,
-
-
-
-            'credit_account_id' => 
-            $request->credit_account_id,
-
-
-
-            'transaction_date' => 
-            $request->transaction_date,
-
-
-
-            'voucher_no' => $voucherNo,
-
-
-
-            'transaction_type' => 
-            $request->transaction_type,
-
-
-
-            'amount' => $request->amount,
-
-
-
-            'description' => 
-            $request->description,
-
-
-
-            'created_by' => Auth::id(),
-
-
-        ]);
-
-
-
-
-
-
-
-
-
-        // Debit Ledger Entry
-
-
-        LedgerEntry::create([
-
-
-            'transaction_id' => $transaction->id,
-
-
-            'company_id' => $request->company_id,
-
-
-            'account_id' => $request->debit_account_id,
-
-
-            'entry_date' => $request->transaction_date,
-
-
-            'debit' => $request->amount,
-
-
-            'credit' => 0,
-
-
-            'description' => $request->description,
-
-
-        ]);
-
-
-
-
-
-
-
-
-
-        // Credit Ledger Entry
-
-
-        LedgerEntry::create([
-
-
-            'transaction_id' => $transaction->id,
-
-
-            'company_id' => $request->company_id,
-
-
-            'account_id' => $request->credit_account_id,
-
-
-            'entry_date' => $request->transaction_date,
-
-
-            'debit' => 0,
-
-
-            'credit' => $request->amount,
-
-
-            'description' => $request->description,
-
-
-        ]);
-
-
-
-
-    });
-
-
-
-
-
-
-
-    return redirect()
-
-        ->route('transactions.index')
-
-        ->with(
-
-            'success',
-
-            'Transaction posted successfully.'
-
-        );
-
-
-}
+</x-app-layout>
