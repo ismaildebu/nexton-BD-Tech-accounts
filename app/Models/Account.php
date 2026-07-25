@@ -49,6 +49,7 @@ class Account extends Model
 
     protected $fillable = [
         'company_id',
+        'account_code',
         'account_name',
         'account_type',
         'parent_id',
@@ -220,8 +221,8 @@ class Account extends Model
 
     public function getCurrentBalanceAttribute(): float
     {
-        $debitTotal = $this->ledgerEntries()->sum('debit_amount');
-        $creditTotal = $this->ledgerEntries()->sum('credit_amount');
+        $debitTotal = $this->ledgerEntries()->sum('debit');
+        $creditTotal = $this->ledgerEntries()->sum('credit');
 
         if (in_array($this->account_type, [self::TYPE_ASSET, self::TYPE_EXPENSE])) {
             return (float) ($this->opening_balance + ($debitTotal - $creditTotal));
