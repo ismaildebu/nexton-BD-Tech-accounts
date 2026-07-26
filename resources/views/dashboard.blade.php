@@ -88,4 +88,63 @@
 
 </div>
 
+<div class="row mt-4">
+
+    <div class="col-md-3 mb-3">
+        <a href="{{ route('journal-vouchers.index') }}" class="text-decoration-none">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <h2>📒</h2>
+                    <h5>Journal Voucher</h5>
+                </div>
+            </div>
+        </a>
+    </div>
+
+    <div class="col-md-3 mb-3">
+        <a href="{{ route('trial-balance.index') }}" class="text-decoration-none">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <h2>📊</h2>
+                    <h5>Trial Balance</h5>
+                </div>
+            </div>
+        </a>
+    </div>
+
+    <div class="col-md-3 mb-3">
+        <a href="{{ route('profit-loss.index') }}" class="text-decoration-none">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <h2>💰</h2>
+                    <h5>Profit & Loss</h5>
+                </div>
+            </div>
+        </a>
+    </div>
+
+    <div class="col-md-3 mb-3">
+        <a href="{{ route('balance-sheet.index') }}" class="text-decoration-none">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <h2>🏦</h2>
+                    <h5>Balance Sheet</h5>
+                </div>
+            </div>
+        </a>
+    </div>
+
+    <div class="col-md-3 mb-3">
+        <a href="{{ route('cash-flow.index') }}" class="text-decoration-none">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <h2>💵</h2>
+                    <h5>Cash Flow</h5>
+                </div>
+            </div>
+        </a>
+    </div>
+
+</div>
+
 </x-app-layout>

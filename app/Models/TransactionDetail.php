@@ -6,16 +6,23 @@ use Illuminate\Database\Eloquent\Model;
 
 class TransactionDetail extends Model
 {
+
     protected $fillable = [
 
         'transaction_id',
         'account_id',
         'debit',
         'credit',
-        'description',
 
     ];
 
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Transaction
+    |--------------------------------------------------------------------------
+    */
 
     public function transaction()
     {
@@ -25,10 +32,18 @@ class TransactionDetail extends Model
     }
 
 
+
+    /*
+    |--------------------------------------------------------------------------
+    | Account
+    |--------------------------------------------------------------------------
+    */
+
     public function account()
     {
         return $this->belongsTo(
             Account::class
         );
     }
+
 }

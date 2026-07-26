@@ -7,38 +7,37 @@ use Illuminate\Database\Eloquent\Model;
 class Transaction extends Model
 {
 
-    protected $fillable = [
+   protected $fillable = [
 
-        'company_id',
+    'company_id',
 
-        'financial_year_id',
+    'financial_year_id',
 
-        'voucher_type_id',
+    'voucher_type_id',
 
-        'transaction_date',
+    'transaction_date',
 
-        'voucher_no',
+    'voucher_no',
 
-        'transaction_type',
+    'transaction_type',
 
-        'account_id',
+    'account_id',
 
-        'debit_account_id',
+    'debit_account_id',
 
-        'credit_account_id',
+    'credit_account_id',
 
-        'amount',
+    'amount',
 
-        'narration',
+    'narration',
 
-        'description',
+    'description',
 
-        'status',
+    'status',
 
-        'created_by',
+    'created_by',
 
-    ];
-
+];
 
 
     /*
@@ -53,7 +52,6 @@ class Transaction extends Model
             Company::class
         );
     }
-
 
 
 
@@ -72,8 +70,6 @@ class Transaction extends Model
 
 
 
-
-
     /*
     |--------------------------------------------------------------------------
     | Voucher Type
@@ -89,58 +85,20 @@ class Transaction extends Model
 
 
 
-
-
     /*
     |--------------------------------------------------------------------------
-    | Default Account (Legacy Support)
+    | Transaction Details
+    |--------------------------------------------------------------------------
+    | Journal Entry Rows
     |--------------------------------------------------------------------------
     */
 
-    public function account()
+    public function details()
     {
-        return $this->belongsTo(
-            Account::class
+        return $this->hasMany(
+            TransactionDetail::class
         );
     }
-
-
-
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | Debit Account
-    |--------------------------------------------------------------------------
-    */
-
-    public function debitAccount()
-    {
-        return $this->belongsTo(
-            Account::class,
-            'debit_account_id'
-        );
-    }
-
-
-
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | Credit Account
-    |--------------------------------------------------------------------------
-    */
-
-    public function creditAccount()
-    {
-        return $this->belongsTo(
-            Account::class,
-            'credit_account_id'
-        );
-    }
-
-
 
 
 
@@ -159,8 +117,6 @@ class Transaction extends Model
 
 
 
-
-
     /*
     |--------------------------------------------------------------------------
     | Created User
@@ -174,13 +130,6 @@ class Transaction extends Model
             'created_by'
         );
     }
-
-public function details()
-{
-    return $this->hasMany(
-        TransactionDetail::class
-    );
-}
 
 
 }

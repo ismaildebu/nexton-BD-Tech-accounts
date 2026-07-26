@@ -12,31 +12,40 @@ use Illuminate\Support\Facades\DB;
 
 class TransactionController extends Controller
 {
+   
+
     /**
-     * Transaction List
-     */
-    public function index()
-    {
-        $companyId = session('company_id');
+ * Transaction List
+ */
+public function index()
+{
+    $companyId = session('company_id');
 
-        if (!$companyId) {
-            return redirect()
-                ->route('dashboard')
-                ->with('error', 'Please select company first.');
-        }
 
-        $transactions = Transaction::with([
-            'company',
-            'account',
-            'user'
-        ])
-        ->where('company_id', $companyId)
-        ->latest()
-        ->paginate(20);
-
-        return view('transactions.index', compact('transactions'));
+    if (!$companyId) {
+        return redirect()
+            ->route('dashboard')
+            ->with('error', 'Please select company first.');
     }
 
+
+    $transactions = Transaction::with([
+        'details.account',
+        'user'
+    ])
+    ->where('company_id', $companyId)
+    ->latest()
+    ->paginate(20);
+
+
+
+    return view(
+        'transactions.index',
+        compact('transactions')
+    );
+   
+
+}
     /**
      * Show the form for creating a new resource.
      */
@@ -83,20 +92,42 @@ class TransactionController extends Controller
 
         DB::transaction(function () use ($request, $companyId) {
             // Voucher Number Generate
-            $prefix = match($request->transaction_type) {
-                'Income' => 'INC',
-                'Expense' => 'EXP',
-                default => 'JV',
-            };
-
-            $last = Transaction::where('company_id', $companyId)
-                ->where('transaction_type', $request->transaction_type)
-                ->latest('id')
-                ->first();
-
-            $next = $last ? ((int) substr($last->voucher_no, 4)) + 1 : 1;
             
-            $voucherNo = $prefix . '-' . str_pad($next, 6, '0', STR_PAD_LEFT);
+            $prefix = match($request->transaction_type) {
+    'Income' => 'INC',
+    'Expense' => 'EXP',
+    default => 'JV',
+};
+
+
+$last = Transaction::where('voucher_no', 'like', $prefix . '-%')
+    ->latest('id')
+    ->first();
+
+
+if ($last) {
+
+    $lastNumber = (int) str_replace(
+        $prefix . '-',
+        '',
+        $last->voucher_no
+    );
+
+    $next = $lastNumber + 1;
+
+} else {
+
+    $next = 1;
+
+}
+
+
+$voucherNo = $prefix . '-' . str_pad(
+    $next,
+    6,
+    '0',
+    STR_PAD_LEFT
+);
 
             // Transaction Create
             $transaction = Transaction::create([

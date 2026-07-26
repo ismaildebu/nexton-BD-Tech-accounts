@@ -68,9 +68,19 @@
                                     {{ $transaction->company->company_name }}
                                 </td>
 
-                                <td class="border px-4 py-3">
-                                    {{ $transaction->account->account_name }}
-                                </td>
+                               <td class="border px-4 py-3">
+
+    @foreach($transaction->details as $detail)
+
+        {{ $detail->account->account_name ?? '' }}
+
+        @if(!$loop->last)
+            <br>
+        @endif
+
+    @endforeach
+
+</td>
 
                                 <td class="border px-4 py-3">
 
@@ -101,7 +111,7 @@
                                 </td>
 
                                 <td class="border px-4 py-3">
-                                    {{ $transaction->user->name }}
+                                    {{ $transaction->user->name ?? 'System' }}
                                 </td>
 
                                 <td class="border px-4 py-3 text-center">
