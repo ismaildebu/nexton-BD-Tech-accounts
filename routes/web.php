@@ -15,6 +15,7 @@ use App\Http\Controllers\CashFlowController;
 use App\Http\Controllers\FinancialYearController;
 use App\Http\Controllers\VoucherTypeController;
 use App\Http\Controllers\CompanySwitchController;
+use App\Http\Controllers\JournalVoucherController;
 /*
 |--------------------------------------------------------------------------
 | Web Routes
@@ -96,6 +97,28 @@ Route::post('/switch-company', [CompanySwitchController::class, 'switch'])
 
     Route::get('/cash-flow', [CashFlowController::class, 'index'])
         ->name('cash-flow.index');
+
+
+        Route::prefix('journal-vouchers')->group(function () {
+
+    Route::get(
+        '/',
+        [JournalVoucherController::class, 'index']
+    )->name('journal-vouchers.index');
+
+
+    Route::get(
+        '/create',
+        [JournalVoucherController::class, 'create']
+    )->name('journal-vouchers.create');
+
+
+    Route::post(
+        '/',
+        [JournalVoucherController::class, 'store']
+    )->name('journal-vouchers.store');
+
+});
 
 });
 });

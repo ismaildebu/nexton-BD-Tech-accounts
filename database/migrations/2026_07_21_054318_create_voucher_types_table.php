@@ -9,24 +9,24 @@ return new class extends Migration
     /**
      * Run the migrations.
      */
-    public function up(): void
-    {
-        Schema::create('voucher_types', function (Blueprint $table) {
-            $table->id();
+   public function up(): void
+{
+    Schema::create('voucher_types', function (Blueprint $table) {
+        $table->id();
 
-            $table->foreignId('company_id')
-                  ->constrained()
-                  ->cascadeOnDelete();
+        $table->foreignId('company_id')
+            ->constrained()
+            ->cascadeOnDelete();
 
-            $table->string('voucher_name');
-            $table->string('voucher_code')->unique();
+        $table->string('name');
+        $table->string('code', 20);
 
-            $table->boolean('is_active')->default(true);
+        $table->boolean('status')
+            ->default(true);
 
-            $table->timestamps();
-        });
-    }
-
+        $table->timestamps();
+    });
+}
     /**
      * Reverse the migrations.
      */
