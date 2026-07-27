@@ -109,7 +109,22 @@ table td{
     grid-template-columns:1fr;
 }
 
+.card-box{
+    background:#fff;
+    border-radius:12px;
+    padding:20px;
+    box-shadow:0 2px 10px rgba(0,0,0,.08);
 }
+
+.dashboard-box{
+    background:white;
+    border-radius:12px;
+    padding:20px;
+    box-shadow:0 3px 10px rgba(0,0,0,.08);
+}
+
+}
+
 
 
 </style>
