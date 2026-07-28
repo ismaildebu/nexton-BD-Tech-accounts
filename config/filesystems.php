@@ -28,6 +28,14 @@ return [
     |
     */
 
+
+    'legal_documents' => [
+    'driver' => 'local',
+    'root' => storage_path('app/legal_documents'),
+    'url' => env('APP_URL') . '/storage/legal_documents',
+    'visibility' => 'private',
+],
+
     'disks' => [
 
         'local' => [

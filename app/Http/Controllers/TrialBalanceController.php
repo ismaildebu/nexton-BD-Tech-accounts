@@ -13,7 +13,7 @@ class TrialBalanceController extends Controller
 
         if (!$companyId) {
             return redirect()
-                ->route('dashboard')
+                ->route('dashboard.index')
                 ->with('error', 'Please select company first.');
         }
 

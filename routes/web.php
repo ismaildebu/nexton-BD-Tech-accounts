@@ -16,6 +16,18 @@ use App\Http\Controllers\FinancialYearController;
 use App\Http\Controllers\VoucherTypeController;
 use App\Http\Controllers\CompanySwitchController;
 use App\Http\Controllers\JournalVoucherController;
+use App\Http\Controllers\LegalDocumentController;
+
+use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\ExpenseController;
+use App\Http\Controllers\ReportController;
+use App\Http\Controllers\BankingController;
+use App\Http\Controllers\SettingController;
+
+
+
+
+
 /*
 |--------------------------------------------------------------------------
 | Web Routes
@@ -41,6 +53,52 @@ Route::middleware(['auth'])->group(function () {
     Route::resource('companies', CompanyController::class);
 
 
+// Legal Documents Routes
+    Route::prefix('legal-documents')->name('legal-documents.')->group(function () {
+        Route::get('/', [LegalDocumentController::class, 'index'])->name('index');
+        Route::get('/create', [LegalDocumentController::class, 'create'])->name('create');
+        Route::post('/', [LegalDocumentController::class, 'store'])->name('store');
+        Route::get('/{legalDocument}', [LegalDocumentController::class, 'show'])->name('show');
+        Route::get('/{legalDocument}/edit', [LegalDocumentController::class, 'edit'])->name('edit');
+        Route::put('/{legalDocument}', [LegalDocumentController::class, 'update'])->name('update');
+        Route::delete('/{legalDocument}', [LegalDocumentController::class, 'destroy'])->name('destroy');
+        Route::get('/{legalDocument}/download', [LegalDocumentController::class, 'download'])->name('download');
+        Route::post('/{legalDocument}/mark-as-reviewed', [LegalDocumentController::class, 'markAsReviewed'])->name('mark-as-reviewed');
+    });
+
+    // API Routes for Legal Documents
+    Route::prefix('api/legal-documents')->name('api.legal-documents.')->group(function () {
+        Route::get('/expiring', [LegalDocumentController::class, 'expiringDocuments'])->name('expiring');
+        Route::get('/statistics', [LegalDocumentController::class, 'statistics'])->name('statistics');
+    });
+
+
+
+/*
+
+dashboard route 
+*/
+
+Route::middleware(['auth'])->group(function () {
+
+    Route::get('/dashboard', [DashboardController::class, 'index'])
+        ->name('dashboard.index');
+
+    Route::get('/invoices', [InvoiceController::class, 'index'])
+        ->name('invoices.index');
+
+    Route::get('/expenses', [ExpenseController::class, 'index'])
+        ->name('expenses.index');
+
+    Route::get('/reports', [ReportController::class, 'index'])
+        ->name('reports.index');
+
+    Route::get('/banking', [BankingController::class, 'index'])
+        ->name('banking.index');
+
+    Route::get('/settings', [SettingController::class, 'index'])
+        ->name('settings.index');
+});
 
     /*
 |-------------------------------------------------------------------------- 
@@ -93,7 +151,7 @@ Route::post('/switch-company', [CompanySwitchController::class, 'switch'])
     Route::get('/balance-sheet', [BalanceSheetController::class, 'index'])
     ->name('balance-sheet.index');
 
-    Route::middleware(['auth'])->group(function () {
+    
 
     Route::get('/cash-flow', [CashFlowController::class, 'index'])
         ->name('cash-flow.index');
@@ -120,7 +178,6 @@ Route::post('/switch-company', [CompanySwitchController::class, 'switch'])
 
 });
 
-});
 });
 
 require __DIR__.'/auth.php';

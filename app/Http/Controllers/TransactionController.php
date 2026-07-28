@@ -23,10 +23,10 @@ public function index()
 
 
     if (!$companyId) {
-        return redirect()
-            ->route('dashboard')
-            ->with('error', 'Please select company first.');
-    }
+    return redirect()
+        ->route('dashboard.index')
+        ->with('error', 'Please select company first.');
+}
 
 
     $transactions = Transaction::with([
@@ -77,7 +77,7 @@ public function index()
 
         if (!$companyId) {
             return redirect()
-                ->route('dashboard')
+                route('dashboard.index')
                 ->with('error', 'Please select company first.');
         }
 
@@ -195,9 +195,9 @@ $voucherNo = $prefix . '-' . str_pad(
 
         if (!$companyId) {
             return redirect()
-                ->route('dashboard')
+                ->route('dashboard.index')
                 ->with('error', 'Please select company first.');
-        }
+}
 
         // সিকিউরিটি চেক: ট্রানজেকশনটি বর্তমান কোম্পানির কিনা
         if ($transaction->company_id != $companyId) {
