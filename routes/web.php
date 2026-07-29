@@ -23,6 +23,7 @@ use App\Http\Controllers\ExpenseController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\BankingController;
 use App\Http\Controllers\SettingController;
+use App\Http\Controllers\BankAccountController;
 
 
 
@@ -87,8 +88,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/invoices', [InvoiceController::class, 'index'])
         ->name('invoices.index');
 
-    Route::get('/expenses', [ExpenseController::class, 'index'])
-        ->name('expenses.index');
+    Route::resource('expenses', ExpenseController::class);
 
     Route::get('/reports', [ReportController::class, 'index'])
         ->name('reports.index');
@@ -115,8 +115,10 @@ Route::post('/switch-company', [CompanySwitchController::class, 'switch'])
     |--------------------------------------------------------------------------
     */
     Route::resource('accounts', AccountController::class);
+    Route::resource('bank-accounts', BankAccountController::class);
     Route::resource('financial-years', FinancialYearController::class);
     Route::resource('voucher-types', VoucherTypeController::class);
+    
 
     /*
     |--------------------------------------------------------------------------

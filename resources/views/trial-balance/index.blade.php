@@ -1,4 +1,12 @@
-<x-app-layout>
+@extends('layouts.app')
+
+@section('title','Accounts')
+
+@section('page-title','Chart of Accounts')
+
+@section('page-subtitle','Manage your company accounts')
+
+@section('content')
 
     <x-slot name="header">
         <h2 class="font-semibold text-2xl">
@@ -131,4 +139,4 @@
         </div>
     </div>
 
-</x-app-layout>
+@endsection

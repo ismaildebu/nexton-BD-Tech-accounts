@@ -79,9 +79,17 @@ $expenseTrend = $this->fillTwelveMonths($expenseTrend);
 
         // Pending Invoices: split into Overdue vs Due for the donut chart
         $pendingOverdueCount = Invoice::query()
-            ->where('status', 'unpaid')
-            ->where('due_date', '<', now())
-            ->count();
+    ->where('company_id', session('company_id'))
+    ->where('status', 'unpaid')
+    ->where('due_date', '<', now())
+    ->count();
+
+
+$pendingDueCount = Invoice::query()
+    ->where('company_id', session('company_id'))
+    ->where('status', 'unpaid')
+    ->where('due_date', '>=', now())
+    ->count();
 
         $pendingDueCount = Invoice::query()
             ->where('status', 'unpaid')
@@ -158,9 +166,16 @@ if (empty($expenseCategories)) {
 
         // Bank Balance Summary with a mini sparkline history per account
         $bankAccounts = BankAccount::query()
-    ->select('id', 'account_name', 'bank_name', 'balance')
-    ->orderByDesc('balance')
-    ->get()
+            ->where('company_id', session('company_id'))
+            ->where('is_active', true)
+            ->select(
+                'id',
+                'account_name',
+                'bank_name',
+                'balance'
+            )
+            ->orderByDesc('balance')
+            ->get()
     ->map(function ($account) {
         $account->sparkline = $account->balanceHistory ?? $this->placeholderSparkline();
         return $account;

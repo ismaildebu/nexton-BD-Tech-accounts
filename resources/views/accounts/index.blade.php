@@ -1,4 +1,12 @@
-<x-app-layout>
+@extends('layouts.app')
+
+@section('title','Accounts')
+
+@section('page-title','Chart of Accounts')
+
+@section('page-subtitle','Manage your company accounts')
+
+@section('content')
 
     <x-slot name="header">
         <div class="flex justify-between items-center">
@@ -165,4 +173,5 @@
     </div>
 
 
-</x-app-layout>
+
+@endsection

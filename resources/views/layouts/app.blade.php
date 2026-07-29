@@ -150,7 +150,26 @@
                 <p class="text-sm text-slate-400">@yield('page-subtitle', 'Welcome back — here is your financial overview.')</p>
             </div>
             <div class="flex items-center gap-3">
+                
+                 
                 <span class="hidden sm:inline-flex items-center gap-2 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-1.5">
+                    
+                    <form action="{{ route('switch.company') }}" method="POST">
+    @csrf
+
+    <select
+        name="company_id"
+        onchange="this.form.submit()"
+        class="border border-slate-300 rounded-lg px-3 py-2 text-sm"
+    >
+        @foreach(\App\Models\Company::orderBy('company_name')->get() as $company)
+            <option value="{{ $company->id }}"
+                {{ session('company_id') == $company->id ? 'selected' : '' }}>
+                {{ $company->company_name }}
+            </option>
+        @endforeach
+    </select>
+</form>
                     <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
                     Live data
                 </span>

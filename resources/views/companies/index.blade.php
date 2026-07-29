@@ -1,4 +1,13 @@
-<x-app-layout>
+
+@extends('layouts.app')
+
+@section('title','Companies')
+
+@section('page-title','Companies')
+
+@section('page-subtitle','Manage your companies')
+
+@section('content')
     <x-slot name="header">
         <h2 class="font-semibold text-xl text-gray-800 leading-tight">
             Company List
@@ -124,4 +133,4 @@
         </div>
     </div>
 
-</x-app-layout>
+@endsection
