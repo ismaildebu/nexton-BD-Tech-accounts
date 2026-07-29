@@ -9,6 +9,8 @@ use App\Models\BankAccount;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use App\Models\TransactionDetail;
+
 
 class DashboardController extends Controller
 {
@@ -29,35 +31,43 @@ class DashboardController extends Controller
         // 1. TOP SUMMARY CARDS
         // ---------------------------------------------------------------
 
-        // Total Revenue (sum of paid invoices this year) + last 7 data points for trend bar chart
-        $totalRevenue = Invoice::query()
-            ->where('status', 'paid')
-            ->whereYear('paid_at', $year)
-            ->sum('total_amount') ?? 0;
+       $totalRevenue = Transaction::query()
+            ->where('company_id', session('company_id'))
+            ->where('transaction_type', 'Income')
+            ->whereYear('transaction_date', $year)
+            ->sum('amount');
 
-        $revenueTrend = Invoice::query()
-            ->where('status', 'paid')
-            ->whereYear('paid_at', $year)
-            ->selectRaw('MONTH(paid_at) as m, SUM(total_amount) as total')
-            ->groupBy('m')
-            ->orderBy('m')
-            ->pluck('total', 'm')
-            ->toArray();
-        $revenueTrend = $this->fillTwelveMonths($revenueTrend);
+        $revenueTrend = Transaction::query()
+    ->where('company_id', session('company_id'))
+    ->where('transaction_type', 'Income')
+    ->whereYear('transaction_date', $year)
+    ->selectRaw('MONTH(transaction_date) as m, SUM(amount) as total')
+    ->groupBy('m')
+    ->orderBy('m')
+    ->pluck('total', 'm')
+    ->toArray();
+
+$revenueTrend = $this->fillTwelveMonths($revenueTrend);
 
         // Total Expenses + trend for line chart
-        $totalExpenses = Expense::query()
-            ->whereYear('spent_at', $year)
-            ->sum('amount') ?? 0;
+                $totalExpenses = Transaction::query()
+                ->where('company_id', session('company_id'))
+                ->where('transaction_type', 'Expense')
+                ->whereYear('transaction_date', $year)
+                ->sum('amount');
 
-        $expenseTrend = Expense::query()
-            ->whereYear('spent_at', $year)
-            ->selectRaw('MONTH(spent_at) as m, SUM(amount) as total')
-            ->groupBy('m')
-            ->orderBy('m')
-            ->pluck('total', 'm')
-            ->toArray();
-        $expenseTrend = $this->fillTwelveMonths($expenseTrend);
+        
+                $expenseTrend = Transaction::query()
+    ->where('company_id', session('company_id'))
+    ->where('transaction_type', 'Expense')
+    ->whereYear('transaction_date', $year)
+    ->selectRaw('MONTH(transaction_date) as m, SUM(amount) as total')
+    ->groupBy('m')
+    ->orderBy('m')
+    ->pluck('total', 'm')
+    ->toArray();
+
+$expenseTrend = $this->fillTwelveMonths($expenseTrend);
 
         // Net Profit
         $netProfit = $totalRevenue - $totalExpenses;
@@ -88,31 +98,54 @@ class DashboardController extends Controller
         $months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
         // Top Expense Categories
-        $expenseCategories = Expense::query()
-            ->whereYear('spent_at', $year)
-            ->select('category', DB::raw('SUM(amount) as total'))
-            ->groupBy('category')
-            ->orderByDesc('total')
-            ->pluck('total', 'category')
-            ->toArray();
+        // Top Expense Categories
+$expenseCategories = TransactionDetail::query()
+    ->join('transactions', 'transaction_details.transaction_id', '=', 'transactions.id')
+    ->join('accounts', 'transaction_details.account_id', '=', 'accounts.id')
+    ->where('transactions.company_id', session('company_id'))
+    ->where('transactions.transaction_type', 'Expense')
+    ->whereYear('transactions.transaction_date', $year)
+    ->where('transaction_details.debit', '>', 0)
+    ->select(
+        'accounts.account_name',
+        DB::raw('SUM(transaction_details.debit) as total')
+    )
+    ->groupBy('accounts.account_name')
+    ->orderByDesc('total')
+    ->pluck('total', 'accounts.account_name')
+    ->toArray();
 
-        // Fallback placeholder shape if the table is empty / not seeded yet
-        if (empty($expenseCategories)) {
-            $expenseCategories = [
-                'Salaries'   => 0,
-                'Utilities'  => 0,
-                'Marketing'  => 0,
-                'Others'     => 0,
-            ];
-        }
+if (empty($expenseCategories)) {
+    $expenseCategories = [
+        'No Expense Data' => 0,
+    ];
+}
 
         // Cash Flow Trend: Inflows vs Outflows for last 6 months
-        $cashFlow = Transaction::query()
-    ->selectRaw("DATE_FORMAT(created_at, '%b') as label")
-    ->selectRaw("SUM(amount) as inflow")
-    ->selectRaw("0 as outflow")
-    ->groupBy(DB::raw("DATE_FORMAT(created_at, '%Y-%m')"), 'label')
-    ->orderBy(DB::raw("DATE_FORMAT(created_at, '%Y-%m')"))
+       $cashFlow = Transaction::query()
+    ->where('company_id', session('company_id'))
+    ->whereYear('transaction_date', $year)
+    ->selectRaw("DATE_FORMAT(transaction_date, '%b') as label")
+    ->selectRaw("
+        SUM(
+            CASE
+                WHEN transaction_type = 'Income'
+                THEN amount
+                ELSE 0
+            END
+        ) as inflow
+    ")
+    ->selectRaw("
+        SUM(
+            CASE
+                WHEN transaction_type = 'Expense'
+                THEN amount
+                ELSE 0
+            END
+        ) as outflow
+    ")
+    ->groupBy(DB::raw("DATE_FORMAT(transaction_date, '%Y-%m')"), 'label')
+    ->orderBy(DB::raw("DATE_FORMAT(transaction_date, '%Y-%m')"))
     ->get();
 
         $cashFlowLabels  = $cashFlow->pluck('label')->toArray();
@@ -135,9 +168,17 @@ class DashboardController extends Controller
 
         // Recent Activity (last 8 transactions across the ledger)
         $recentActivity = Transaction::query()
-    ->latest()
+    ->where('company_id', session('company_id'))
+    ->latest('transaction_date')
     ->take(8)
-    ->get(['id', 'created_at', 'description']);
+    ->get([
+        'id',
+        'voucher_no',
+        'transaction_type',
+        'amount',
+        'transaction_date',
+        'description',
+    ]);
 
         return view('dashboard.index', compact(
             'totalRevenue',

@@ -1,16 +1,13 @@
-<x-app-layout>
+@extends('layouts.app')
 
-<x-slot name="header">
-    <div>
-        <h2 class="text-2xl font-bold">
-            Accounting Dashboard
-        </h2>
+@section('title', 'Dashboard')
 
-        <p class="text-gray-500">
-            Welcome back — here is your financial overview for {{ $year }}
-        </p>
-    </div>
-</x-slot>
+@section('page-title', 'Accounting Dashboard')
+
+@section('page-subtitle', 'Welcome back — here is your financial overview for '.$year)
+
+@section('content')
+
 <div class="space-y-6">
 
     {{-- ======================= 1. TOP SUMMARY CARDS ======================= --}}
@@ -150,7 +147,7 @@
                         @forelse($bankAccounts as $account)
                             <tr>
                                 <td class="py-3">
-                                    <p class="font-semibold text-slate-700">{{ $account->name }}</p>
+                                    <p class="font-semibold text-slate-700">{{ $account->account_name }}</p>
                                     <p class="text-xs text-slate-400">{{ $account->bank_name }}</p>
                                 </td>
                                 <td class="py-3 font-semibold text-slate-700">৳{{ number_format($account->balance, 2) }}</td>
@@ -181,19 +178,42 @@
                     <tbody class="divide-y divide-slate-100">
                         @forelse($recentActivity as $activity)
                             <tr>
-                                <td class="py-3 text-slate-500">{{ optional($activity->created_at)->format('d M, Y') }}</td>
-                                <td class="py-3">
-                                    <span @class([
-                                        'inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold',
-                                        'bg-emerald-50 text-emerald-600' => $activity->type === 'inflow',
-                                        'bg-rose-50 text-rose-600' => $activity->type === 'outflow',
-                                    ])>
-                                        {{ ucfirst($activity->type) }}
-                                    </span>
-                                    <span class="text-xs text-slate-400 ml-1">{{ $activity->description }}</span>
-                                </td>
+                                <td class="py-3 text-slate-500">{{ \Carbon\Carbon::parse($activity->transaction_date)->format('d M, Y') }}</td>
+                                
+
+<td class="py-3">
+
+        <strong>{{ $activity->voucher_no }}</strong><br>
+
+        <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold
+    @if($activity->transaction_type=='Income')
+    bg-emerald-50 text-emerald-600
+    @elseif($activity->transaction_type=='Expense')
+    bg-rose-50 text-rose-600
+    @else
+    bg-blue-50 text-blue-600
+    @endif">
+            {{ $activity->transaction_type }}
+        </span>
+
+        <br>
+
+        <small class="text-slate-400">
+            {{ $activity->description }}
+        </small>
+
+</td>
+
                                 <td class="py-3 text-right font-semibold {{ $activity->type === 'inflow' ? 'text-emerald-600' : 'text-rose-600' }}">
-                                    {{ $activity->type === 'inflow' ? '+' : '-' }}৳{{ number_format($activity->amount, 2) }}
+                                    @if($activity->transaction_type=='Income')
++
+@elseif($activity->transaction_type=='Expense')
+-
+@else
+±
+@endif
+
+৳{{ number_format($activity->amount,2) }}
                                 </td>
                             </tr>
                         @empty
@@ -430,4 +450,5 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 @endpush
-</x-app-layout>
+
+@endsection

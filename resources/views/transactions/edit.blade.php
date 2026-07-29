@@ -20,48 +20,56 @@
                     <div class="mb-4">
                         <label>Company</label>
 
-                        <select name="company_id"
-                                class="w-full border rounded p-2">
-
-                            @foreach($companies as $company)
-
-                                <option
-                                    value="{{ $company->id }}"
-                                    @selected($transaction->company_id==$company->id)>
-
-                                    {{ $company->company_name }}
-
-                                </option>
-
-                            @endforeach
-
-                        </select>
+                        <input
+                            type="text"
+                            class="w-full border rounded p-2 bg-gray-100"
+                            value="{{ $company->company_name }}"
+                            readonly>
 
                     </div>
 
                     <div class="mb-4">
                         <label>Account</label>
 
-                        <select name="account_id"
-                                class="w-full border rounded p-2">
+                        <div class="mb-4">
+    <label>Debit Account</label>
 
-                            @foreach($accounts as $account)
+    <select name="debit_account_id" class="w-full border rounded p-2">
 
-                                <option
-                                    value="{{ $account->id }}"
-                                    @selected($transaction->account_id==$account->id)>
+        @foreach($accounts as $account)
 
-                                    {{ $account->account_code }}
-                                    -
-                                    {{ $account->account_name }}
+            <option value="{{ $account->id }}"
+                @selected($transaction->debit_account_id == $account->id)>
 
-                                </option>
+                {{ $account->account_code }} - {{ $account->account_name }}
 
-                            @endforeach
+            </option>
 
-                        </select>
+        @endforeach
 
-                    </div>
+    </select>
+</div>
+
+<div class="mb-4">
+    <label>Credit Account</label>
+
+    <select name="credit_account_id" class="w-full border rounded p-2">
+
+        @foreach($accounts as $account)
+
+            <option value="{{ $account->id }}"
+                @selected($transaction->credit_account_id == $account->id)>
+
+                {{ $account->account_code }} - {{ $account->account_name }}
+
+            </option>
+
+        @endforeach
+
+    </select>
+</div>
+                        
+                               
 
                     <div class="mb-4">
 

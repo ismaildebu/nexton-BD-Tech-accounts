@@ -6,6 +6,7 @@ use App\Models\Transaction;
 use App\Models\Company;
 use App\Models\Account;
 use App\Models\LedgerEntry;
+use App\Models\TransactionDetail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -143,6 +144,22 @@ $voucherNo = $prefix . '-' . str_pad(
                 'created_by' => Auth::id(),
             ]);
 
+            // Debit Detail
+TransactionDetail::create([
+    'transaction_id' => $transaction->id,
+    'account_id'     => $request->debit_account_id,
+    'debit'          => $request->amount,
+    'credit'         => 0,
+]);
+
+// Credit Detail
+TransactionDetail::create([
+    'transaction_id' => $transaction->id,
+    'account_id'     => $request->credit_account_id,
+    'debit'          => 0,
+    'credit'         => $request->amount,
+]);
+
             // Debit Ledger Entry
             LedgerEntry::create([
                 'transaction_id' => $transaction->id,
@@ -244,6 +261,9 @@ $voucherNo = $prefix . '-' . str_pad(
             // পুরাতন Ledger Entry Delete
             LedgerEntry::where('transaction_id', $transaction->id)->delete();
 
+            // পুরাতন Transaction Details Delete
+TransactionDetail::where('transaction_id', $transaction->id)->delete();
+
             // Transaction Update
             $transaction->update([
                 'company_id' => $companyId,
@@ -255,6 +275,24 @@ $voucherNo = $prefix . '-' . str_pad(
                 'amount' => $request->amount,
                 'description' => $request->description,
             ]);
+
+            // Debit Detail
+TransactionDetail::create([
+    'transaction_id' => $transaction->id,
+    'account_id'     => $request->debit_account_id,
+    'debit'          => $request->amount,
+    'credit'         => 0,
+]);
+
+// Credit Detail
+TransactionDetail::create([
+    'transaction_id' => $transaction->id,
+    'account_id'     => $request->credit_account_id,
+    'debit'          => 0,
+    'credit'         => $request->amount,
+]);
+
+           
 
             // Debit Ledger
             LedgerEntry::create([
@@ -298,11 +336,13 @@ $voucherNo = $prefix . '-' . str_pad(
 
         DB::transaction(function () use ($transaction) {
             LedgerEntry::where('transaction_id', $transaction->id)->delete();
+            TransactionDetail::where('transaction_id', $transaction->id)->delete();
             $transaction->delete();
         });
 
         return redirect()
             ->route('transactions.index')
             ->with('success', 'Transaction deleted successfully.');
+
     }
 }

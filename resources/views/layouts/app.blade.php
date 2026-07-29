@@ -159,14 +159,13 @@
 
                             <main class="flex-1 p-4 sm:p-6">
 
-                                    @isset($header)
+                                    @hasSection('header')
                                         <div class="mb-6">
-                                            {{ $header }}
+                                            @yield('header')
                                         </div>
-                                    @endisset
+                                    @endif
 
-                                    {{ $slot }}
-
+                                    @yield('content')
                              </main>
     </div>
 </div>
