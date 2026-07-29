@@ -1,10 +1,16 @@
-@extends('layouts.app')
+<x-app-layout>
 
-@section('title', 'Dashboard')
-@section('page-title', 'Accounting Dashboard')
-@section('page-subtitle', 'Welcome back — here is your financial overview for ' . $year)
+<x-slot name="header">
+    <div>
+        <h2 class="text-2xl font-bold">
+            Accounting Dashboard
+        </h2>
 
-@section('content')
+        <p class="text-gray-500">
+            Welcome back — here is your financial overview for {{ $year }}
+        </p>
+    </div>
+</x-slot>
 <div class="space-y-6">
 
     {{-- ======================= 1. TOP SUMMARY CARDS ======================= --}}
@@ -199,7 +205,7 @@
         </div>
     </div>
 </div>
-@endsection
+
 
 @push('scripts')
 <script>
@@ -424,3 +430,4 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 @endpush
+</x-app-layout>

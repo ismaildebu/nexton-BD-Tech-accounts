@@ -4,11 +4,11 @@
     <!-- উপরের লোগো এবং মেনু লিস্ট -->
     <div class="flex flex-col space-y-6">
         <div class="flex items-center px-2 py-2">
-            <span class="text-xl font-bold text-gray-800">Your App</span>
+            <span class="text-xl font-bold text-gray-800">Nexton BD Tach</span>
         </div>
 
         <nav class="flex flex-col space-y-1">
-            <a href="{{ route('dashboard') }}" class="flex items-center px-4 py-2.5 rounded-lg bg-blue-600 text-white font-medium">
+            <a href="{{ route('dashboard.index') }}" class="flex items-center px-4 py-2.5 rounded-lg bg-blue-600 text-white font-medium">
                 Dashboard
             </a>
            <a href="{{ route('companies.index') }}" 
@@ -27,7 +27,33 @@
    class="flex items-center px-4 py-2.5 rounded-lg text-gray-700 hover:bg-gray-100 font-medium">
     Transactions
 </a>
+<a href="{{ route('ledger.index') }}" 
+   class="flex items-center px-4 py-2.5 rounded-lg text-gray-700 hover:bg-gray-100 font-medium">
+    Ledger
+</a>
 
+<a href="{{ route('journal-vouchers.index') }}" 
+   class="flex items-center px-4 py-2.5 rounded-lg text-gray-700 hover:bg-gray-100 font-medium">
+    Journal Vouchers
+</a>
+
+
+<a href="{{ route('invoices.index') }}" 
+   class="flex items-center px-4 py-2.5 rounded-lg text-gray-700 hover:bg-gray-100 font-medium">
+    Invoices
+</a>
+
+
+<a href="{{ route('expenses.index') }}" 
+   class="flex items-center px-4 py-2.5 rounded-lg text-gray-700 hover:bg-gray-100 font-medium">
+    Expenses
+</a>
+
+
+<a href="{{ route('banking.index') }}" 
+   class="flex items-center px-4 py-2.5 rounded-lg text-gray-700 hover:bg-gray-100 font-medium">
+    Banking
+</a>
 
 <div x-data="{ openReports: false }">
 
@@ -47,6 +73,42 @@
         </svg>
 
     </button>
+
+    <div x-data="{ openSystem: false }">
+
+    <button
+        @click="openSystem = !openSystem"
+        class="w-full flex items-center justify-between px-4 py-2.5 rounded-lg text-gray-700 hover:bg-gray-100 font-medium">
+
+        <span>System</span>
+
+        <svg class="w-4 h-4 transition-transform"
+             :class="{ 'rotate-180': openSystem }"
+             fill="none"
+             stroke="currentColor"
+             viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M19 9l-7 7-7-7"/>
+        </svg>
+
+    </button>
+
+
+    <div x-show="openSystem" x-transition class="ml-4 mt-1 space-y-1">
+
+        <a href="{{ route('voucher-types.index') }}"
+           class="block px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-100">
+            Voucher Types
+        </a>
+
+        <a href="{{ route('financial-years.index') }}"
+           class="block px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-100">
+            Financial Years
+        </a>
+
+    </div>
+
+</div>
 
     <div x-show="openReports" x-transition class="ml-4 mt-1 space-y-1">
 

@@ -55,7 +55,7 @@ public function index()
 
         if (!$companyId) {
             return redirect()
-                ->route('dashboard')
+                ->route('dashboard.index')
                 ->with('error', 'Please select company first.');
         }
 
@@ -75,11 +75,11 @@ public function index()
     {
         $companyId = session('company_id');
 
-        if (!$companyId) {
-            return redirect()
-                route('dashboard.index')
-                ->with('error', 'Please select company first.');
-        }
+                    if (!$companyId) {
+                    return redirect()
+                        ->route('dashboard.index')
+                        ->with('error', 'Please select company first.');
+                }
 
         $request->validate([
             'debit_account_id' => 'required|exists:accounts,id',
@@ -222,7 +222,7 @@ $voucherNo = $prefix . '-' . str_pad(
 
         if (!$companyId) {
             return redirect()
-                ->route('dashboard')
+                ->route('dashboard.index')
                 ->with('error', 'Please select company first.');
         }
 

@@ -65,6 +65,16 @@
 
 
                                 <td class="border p-2">
+                                    <form action="{{ route('switch.company') }}" method="POST" class="inline">
+    @csrf
+
+    <input type="hidden" name="company_id" value="{{ $company->id }}">
+
+    <button type="submit"
+        class="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700">
+        Select
+    </button>
+</form>
 
                                     <a href="{{ route('companies.edit', $company->id) }}"
                                        class="bg-yellow-500 text-white px-3 py-1 rounded">
