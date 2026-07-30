@@ -1,19 +1,24 @@
 @extends('layouts.app')
 
-@section('title','Accounts')
+@section('title','Profit & Loss')
 
-@section('page-title','Chart of Accounts')
+@section('page-title','Profit & Loss')
 
-@section('page-subtitle','Manage your company accounts')
+@section('page-subtitle','Manage your company Profit & Loss Statement')@section('header')
+
+@section('header')
+
+<div class="flex justify-between items-center">
+
+    <h2 class="font-semibold text-2xl text-gray-800">
+        Title
+    </h2>
+
+</div>
+
+@endsection
 
 @section('content')
-
-<x-slot name="header">
-    <h2 class="text-2xl font-semibold">
-        Profit & Loss Statement
-    </h2>
-</x-slot>
-
 <div class="py-8">
 
 <div class="max-w-7xl mx-auto">

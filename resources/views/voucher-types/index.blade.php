@@ -1,18 +1,29 @@
-<x-app-layout>
+@extends('layouts.app')
 
-    <x-slot name="header">
-        <div class="flex justify-between items-center">
-            <h2 class="font-semibold text-2xl text-gray-800">
-                Voucher Types
-            </h2>
+@section('title','VoucherTypes')
 
-            <a href="{{ route('voucher-types.create') }}"
-               class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-                + Add Voucher Type
-            </a>
-        </div>
-    </x-slot>
+@section('page-title','VoucherTypes')
 
+@section('page-subtitle','Manage your company Vouchers')
+
+    @section('header')
+
+<div class="flex justify-between items-center">
+
+    <h2 class="font-semibold text-2xl text-gray-800">
+        Voucher Types
+    </h2>
+
+    <a href="{{ route('voucher-types.create') }}"
+       class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+        + Add Voucher Type
+    </a>
+
+</div>
+
+@endsection
+
+@section('content')
     <div class="py-8">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
 
@@ -105,4 +116,4 @@
         </div>
     </div>
 
-</x-app-layout>
+@endsection

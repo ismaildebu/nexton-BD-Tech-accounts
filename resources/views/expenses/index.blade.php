@@ -1,5 +1,34 @@
 @extends('layouts.app')
 
+@section('title','Expenses')
+
+@section('page-title','Expenses')
+
+@section('page-subtitle','Manage your company Expenses')
+
+
+@section('header')
+
+<div class="flex justify-between items-center">
+
+    <h2 class="font-semibold text-2xl text-gray-800">
+        Expenses
+    </h2>
+
+
+    <a href="{{ route('expenses.create') }}"
+       class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">
+
+        + Add Expense
+
+    </a>
+
+</div>
+
+@endsection
+
+
+
 @section('content')
 
 <div class="container mx-auto p-6">

@@ -1,12 +1,25 @@
-<x-app-layout>
+@extends('layouts.app')
 
-    <x-slot name="header">
-        <h2 class="font-semibold text-2xl text-gray-800">
-            Add Financial Year
-        </h2>
-    </x-slot>
+@section('title','Add Financial Year')
 
-    <div class="py-8">
+@section('page-title','Add Financial Year')
+
+@section('page-subtitle','Create company financial year')
+
+@section('header')
+
+<div class="flex justify-between items-center">
+
+    <h2 class="font-semibold text-2xl text-gray-800">
+        Add Financial Year
+    </h2>
+
+</div>
+
+@endsection
+
+@section('content')
+<div class="py-8">
         <div class="max-w-4xl mx-auto sm:px-6 lg:px-8">
 
             <div class="bg-white shadow rounded-lg p-6">
@@ -168,4 +181,4 @@
 
 </div>
 
-</x-app-layout>
+@endsection

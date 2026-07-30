@@ -1,7 +1,26 @@
 @extends('layouts.app')
 
-@section('content')
+@section('title','Add Expense')
 
+@section('page-title','Add Expense')
+
+@section('page-subtitle','Create a new company expense')
+
+
+@section('header')
+
+<div class="flex justify-between items-center">
+
+    <h2 class="font-semibold text-2xl text-gray-800">
+        Add Expense
+    </h2>
+
+</div>
+
+@endsection
+
+
+@section('content')
 <div class="container mx-auto p-6">
 
     <div class="mb-6">

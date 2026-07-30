@@ -1,25 +1,51 @@
 @extends('layouts.app')
 
-@section('page-title', 'Bank Accounts')
+@section('title','Bank Accounts')
 
-@section('page-subtitle', 'Manage company bank accounts and balances')
+@section('page-title','Bank Accounts')
+
+@section('page-subtitle','Manage company bank accounts and balances')
+
+
+@section('header')
+
+<div class="flex justify-between items-center">
+
+    <h2 class="font-semibold text-2xl text-gray-800">
+        Bank Accounts
+    </h2>
+
+    <a href="{{ route('bank-accounts.create') }}"
+       class="bg-emerald-600 text-white px-5 py-2 rounded-lg hover:bg-emerald-700">
+
+        + Add Bank Account
+
+    </a>
+
+</div>
+
+@endsection
+
+
 
 @section('content')
 
-<div class="space-y-6">
+<div class="flex justify-between items-center">
 
-    {{-- Header --}}
-    <div class="flex justify-between items-center">
+    <h2 class="font-semibold text-2xl text-gray-800">
+        Bank Accounts
+    </h2>
 
-        <div>
-            <h2 class="text-2xl font-bold text-slate-800">
-                Bank Accounts
-            </h2>
+    <a href="{{ route('bank-accounts.create') }}"
+       class="bg-emerald-600 text-white px-5 py-2 rounded-lg hover:bg-emerald-700">
+        + Add Bank Account
+    </a>
 
-            <p class="text-gray-500">
-                All active bank accounts of current company
-            </p>
-        </div>
+</div>
+
+@endsection
+
+@section('content')
 
 
         <a href="{{ route('bank-accounts.create') }}"

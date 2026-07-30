@@ -1,10 +1,24 @@
-<x-app-layout>
+@extends('layouts.app')
 
-    <x-slot name="header">
-        <h2 class="font-semibold text-2xl text-gray-800">
-            Edit Transaction
-        </h2>
-    </x-slot>
+@section('title','Edit Transaction')
+
+@section('page-title','Edit Transaction')
+
+@section('page-subtitle','Update company transaction information')
+
+@section('header')
+
+<div class="flex justify-between items-center">
+
+    <h2 class="font-semibold text-2xl text-gray-800">
+        Edit Transaction
+    </h2>
+
+</div>
+
+@endsection
+
+@section('content')
 
     <div class="py-8">
         <div class="max-w-4xl mx-auto">
@@ -154,4 +168,4 @@
         </div>
     </div>
 
-</x-app-layout>
+@endsection

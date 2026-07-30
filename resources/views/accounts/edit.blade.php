@@ -1,12 +1,28 @@
-<x-app-layout>
+@extends('layouts.app')
 
-    <x-slot name="header">
-        <h2 class="font-semibold text-2xl text-gray-800">
-            Edit Account
-        </h2>
-    </x-slot>
+@section('title', 'Edit Account')
 
-    <div class="py-8">
+@section('page-title', 'Edit Account')
+
+@section('page-subtitle', 'Edit a new chart of account')
+
+@section('header')
+
+   <div class="flex justify-between items-center">
+    <h2 class="font-semibold text-2xl text-gray-800">
+        Edit Account
+    </h2>
+
+    <a href="{{ route('accounts.index') }}"
+       class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded">
+        Back
+    </a>
+</div>
+@endsection
+
+@section('content')
+
+<div class="py-8">
         <div class="max-w-4xl mx-auto sm:px-6 lg:px-8">
 
             <div class="bg-white shadow rounded-lg p-6">
@@ -155,4 +171,4 @@
         </div>
     </div>
 
-</x-app-layout>
+@endsection

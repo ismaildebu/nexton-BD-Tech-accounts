@@ -6,22 +6,20 @@
 
 @section('page-subtitle','Manage your company accounts')
 
+@section('header')
+<div class="flex justify-between items-center">
+    <h2 class="font-semibold text-2xl text-gray-800">
+        Chart of Accounts
+    </h2>
+
+    <a href="{{ route('accounts.create') }}"
+       class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+        + Add Account
+    </a>
+</div>
+@endsection
+
 @section('content')
-
-    <x-slot name="header">
-        <div class="flex justify-between items-center">
-
-            <h2 class="font-semibold text-2xl text-gray-800">
-                Chart of Accounts
-            </h2>
-
-            <a href="{{ route('accounts.create') }}"
-               class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-                + Add Account
-            </a>
-
-        </div>
-    </x-slot>
 
 
     <div class="py-8">

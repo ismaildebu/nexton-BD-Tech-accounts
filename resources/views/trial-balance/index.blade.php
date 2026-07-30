@@ -1,19 +1,25 @@
 @extends('layouts.app')
 
-@section('title','Accounts')
+@section('title','Trial Balance')
 
-@section('page-title','Chart of Accounts')
+@section('page-title','Trial Balance')
 
-@section('page-subtitle','Manage your company accounts')
+@section('page-subtitle','Manage your company Trial Balance')
+
+@section('header')
+
+<div class="flex justify-between items-center">
+
+    <h2 class="font-semibold text-2xl text-gray-800">
+        Trial Balance
+    </h2>
+
+</div>
+
+@endsection
+
 
 @section('content')
-
-    <x-slot name="header">
-        <h2 class="font-semibold text-2xl">
-            Trial Balance
-        </h2>
-    </x-slot>
-
     <div class="py-8">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
 

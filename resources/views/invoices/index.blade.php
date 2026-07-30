@@ -1,4 +1,12 @@
-<x-app-layout>
+@extends('layouts.app')
+
+@section('title','Invoices')
+
+@section('page-title','Invoices')
+
+@section('page-subtitle','Manage your company Invoices')
+
+@section('content')
 
 <div style="padding:30px">
 
@@ -37,4 +45,4 @@
 
 </div>
 
-</x-app-layout>
+@endsection

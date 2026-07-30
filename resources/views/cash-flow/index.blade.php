@@ -1,12 +1,41 @@
-<x-app-layout>
+@extends('layouts.app')
 
-    <x-slot name="header">
-        <h2 class="text-2xl font-semibold">
-            Cash Flow Statement
-        </h2>
-    </x-slot>
+@section('title','Cash Flow')
 
-    <div class="py-8">
+@section('page-title','Cash Flow')
+
+@section('page-subtitle','Manage your company Cash Flow Statement')
+
+
+@section('header')
+
+<div class="flex justify-between items-center">
+
+    <h2 class="font-semibold text-2xl text-gray-800">
+        Cash Flow Statement
+    </h2>
+
+</div>
+
+@endsection
+
+
+@section('content')
+<div class="flex justify-between items-center">
+
+    <h2 class="font-semibold text-2xl text-gray-800">
+        Cash Flow Statement
+    </h2>
+
+</div>
+
+@endsection
+
+
+@section('content')
+
+
+<div class="py-8">
 
         <div class="max-w-5xl mx-auto">
 
@@ -154,4 +183,4 @@
 
     </div>
 
-</x-app-layout>
+@endsection
