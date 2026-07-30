@@ -1,11 +1,12 @@
-<x-app-layout>
+@extends('layouts.app')
 
-    <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-            Edit Company
-        </h2>
-    </x-slot>
+@section('title','Edit Company')
 
+@section('page-title','Edit Company')
+
+@section('page-subtitle','Edit company')
+
+@section('content')
 
     <div class="py-6">
 
@@ -69,4 +70,4 @@
 
     </div>
 
-</x-app-layout>
+@endsection

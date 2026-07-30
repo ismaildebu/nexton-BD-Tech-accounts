@@ -6,9 +6,7 @@
 
 @section('page-subtitle','Manage company bank accounts and balances')
 
-
-@section('header')
-
+@section('content')
 <div class="flex justify-between items-center">
 
     <h2 class="font-semibold text-2xl text-gray-800">

@@ -1,11 +1,12 @@
-<x-app-layout>
+@extends('layouts.app')
 
-    <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-            Add Company
-        </h2>
-    </x-slot>
+@section('title','Create New Company')
 
+@section('page-title','Create New Company')
+
+@section('page-subtitle','Create a new company')
+
+@section('content')
 
     <div class="bg-white shadow rounded-lg p-6">
 
@@ -103,7 +104,9 @@
                         School / College
                     </option>
 
-
+                    <option value="Media">
+                        News Paper / Media
+                    </option>
                 </select>
 
 
@@ -294,4 +297,4 @@ document.getElementById('business_type')
 
 
 
-</x-app-layout>
+@endsection
