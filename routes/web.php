@@ -25,6 +25,8 @@ use App\Http\Controllers\BankingController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\BankAccountController;
 
+use App\Http\Controllers\UserController;
+
 
 
 
@@ -52,6 +54,16 @@ Route::middleware(['auth'])->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::resource('companies', CompanyController::class);
+
+
+    /*
+ Nexton BD Tech — System / User Management Routes
+*/
+
+Route::middleware(['auth', 'verified'])->prefix('system')->name('system.')->group(function () {
+    Route::resource('users', UserController::class);
+});
+
 
 
 // Legal Documents Routes
