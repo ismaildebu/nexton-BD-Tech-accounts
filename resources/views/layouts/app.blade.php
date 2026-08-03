@@ -33,6 +33,14 @@
     {{-- Chart.js for all dashboard visualizations --}}
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 
+    {{-- Alpine.js — powers the x-data / x-show Reports dropdown in the sidebar.
+         Remove this if Alpine is already bundled via Vite elsewhere, to avoid loading it twice. --}}
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+
+    {{-- Inventory (Stock Transfer) & Payroll (Salary) module styles --}}
+    <link rel="stylesheet" href="{{ asset('css/inventory.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/payroll.css') }}">
+
     <style>
         body { font-family: 'Inter', sans-serif; }
         ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -80,6 +88,10 @@
     <a href="{{ route('expenses.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium">Expenses</a>
 
     <a href="{{ route('banking.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium">Banking</a>
+
+    <a href="{{ route('stock-transfers.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium">Stock Transfers</a>
+
+    <a href="{{ route('salaries.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium">Salaries</a>
 
     <div x-data="{ openReports: true }">
 

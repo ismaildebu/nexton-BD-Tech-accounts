@@ -28,7 +28,8 @@ use App\Http\Controllers\BankAccountController;
 use App\Http\Controllers\UserController;
 
 
-
+use App\Http\Controllers\StockTransferController;
+use App\Http\Controllers\SalaryController;
 
 
 /*
@@ -62,6 +63,23 @@ Route::middleware(['auth'])->group(function () {
 
 Route::middleware(['auth', 'verified'])->prefix('system')->name('system.')->group(function () {
     Route::resource('users', UserController::class);
+});
+
+
+ 
+/*
+Web Routes — Stock Transfer & Salary 
+*/
+
+Route::middleware(['web'])->group(function () {
+ 
+        Route::resource('stock-transfers', StockTransferController::class)
+        ->except(['edit', 'update']);
+ 
+    // ---- Payroll: Salary ----
+        Route::resource('salaries', SalaryController::class);
+
+        Route::resource('salaries', SalaryController::class);
 });
 
 
