@@ -81,22 +81,31 @@ class User extends Authenticatable
      * Sync the spatie role from the legacy `role` string column.
      * Call this after creating/updating a user so old code paths keep working.
      */
+    
     public function syncLegacyRole(): void
-    {
-        $legacyMap = [
-            'Admin'     => 'admin',
-            'Manager'   => 'manager',
-            'Accountant' => 'accountant',
-        ];
-
-        $newRole = $legacyMap[$this->role] ?? null;
-
-        if ($newRole !== null && $this->hasRole('admin') === false) {
-            // Only assign when the user has no spatie role yet,
-            // so manual permission customisation is never overwritten.
-            $this->assignRole($newRole);
-        }
+{
+    // Never downgrade or modify an explicitly assigned Spatie role.
+    if ($this->hasRole('super-admin')) {
+        return;
     }
+
+    // Do not overwrite manually assigned roles.
+    if ($this->roles()->exists()) {
+        return;
+    }
+
+    $legacyMap = [
+        'Admin'      => 'admin',
+        'Manager'    => 'manager',
+        'Accountant' => 'accountant',
+    ];
+
+    $newRole = $legacyMap[$this->role] ?? null;
+
+    if ($newRole !== null) {
+        $this->assignRole($newRole);
+    }
+}
 
     public function isAdministrator(): bool
     {

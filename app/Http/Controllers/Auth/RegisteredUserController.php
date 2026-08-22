@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
@@ -28,31 +30,59 @@ class RegisteredUserController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:'.User::class],
-            'password' => ['required', 'confirmed', Rules\Password::defaults()],
+            'name' => [
+                'required',
+                'string',
+                'max:255',
+            ],
+            'email' => [
+                'required',
+                'string',
+                'lowercase',
+                'email',
+                'max:255',
+                'unique:' . User::class,
+            ],
+            'password' => [
+                'required',
+                'confirmed',
+                Rules\Password::defaults(),
+            ],
         ]);
 
-        // Bootstrap: the very first person to ever register on a fresh
-        // install has no one to grant them access, so they become the
-        // Super Admin automatically. Everyone after that gets the
-        // ordinary default role and must be promoted by an admin.
+        /*
+        |--------------------------------------------------------------------------
+        | Bootstrap First User
+        |--------------------------------------------------------------------------
+        |
+        | On a fresh installation the first registered user becomes the
+        | Super Admin automatically.
+        |
+        */
         $isFirstUser = User::query()->doesntExist();
 
         $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
+            'name' => $request->string('name')->toString(),
+            'email' => $request->string('email')->lower()->toString(),
+            'password' => Hash::make($request->string('password')->toString()),
             'role' => $isFirstUser ? 'Admin' : 'Accountant',
+            'status' => true,
         ]);
 
+        /*
+        |--------------------------------------------------------------------------
+        | Assign Spatie Role
+        |--------------------------------------------------------------------------
+        |
+        | The first user becomes Super Admin.
+        | Other users receive the role mapped from the legacy role column.
+        |
+        */
         if ($isFirstUser) {
-            $user->assignRoleIfExists('super-admin');
+            $user->syncRoles(['super-admin']);
+        } else {
+            $user->syncLegacyRole();
         }
-
-        // Always sync the spatie role from the legacy `role` column so
-        // new users are never left with zero permissions.
-        $user->syncLegacyRole();
 
         event(new Registered($user));
 
