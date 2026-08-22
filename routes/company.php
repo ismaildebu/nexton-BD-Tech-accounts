@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\CompanyController;
@@ -23,9 +23,6 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
 
     Route::put('/companies/{company}', [CompanyController::class, 'update'])
         ->middleware('can-permission:companies.edit')->name('companies.update');
-
-    Route::patch('/companies/{company}', [CompanyController::class, 'update'])
-        ->middleware('can-permission:companies.edit');
 
     Route::delete('/companies/{company}', [CompanyController::class, 'destroy'])
         ->middleware('can-permission:companies.delete')->name('companies.destroy');
