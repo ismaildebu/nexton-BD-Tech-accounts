@@ -51,4 +51,28 @@ final class FreePercentageResolver
 
         return 'system';
     }
+
+    /**
+     * Single source of truth for turning a paid quantity + free
+     * percentage into an integer free-copy quantity. Every place in the
+     * app that computes free copies (Daily Distribution today; Print
+     * Planning, reports, etc. later) must call this — never
+     * round()/floor()/ceil() the multiplication inline — so the rounding
+     * behaviour can never diverge between modules.
+     *
+     * Rounding rule: round-half-up on paid_quantity * free_percentage / 100
+     * (PHP's round() default, i.e. 0.5 always rounds away from zero).
+     *
+     *   paid=100, free%=10 -> 100 * 10 / 100 = 10.0   -> 10
+     *   paid=75,  free%=10 -> 75  * 10 / 100 = 7.5     -> 8
+     *   paid=0,   free%=10 -> 0                        -> 0
+     */
+    public function calculateFreeQuantity(int $paidQuantity, float $freePercentage): int
+    {
+        if ($paidQuantity <= 0 || $freePercentage <= 0) {
+            return 0;
+        }
+
+        return (int) round($paidQuantity * $freePercentage / 100);
+    }
 }

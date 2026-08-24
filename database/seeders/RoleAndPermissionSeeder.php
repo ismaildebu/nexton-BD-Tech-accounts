@@ -190,6 +190,7 @@ class RoleAndPermissionSeeder extends Seeder
 
         'media-distributions.view'   => 'media',
         'media-distributions.create' => 'media',
+        'media-distributions.print'  => 'media',
 
         'media-returns.view'         => 'media',
         'media-returns.create'       => 'media',
@@ -361,6 +362,7 @@ class RoleAndPermissionSeeder extends Seeder
 
             'media-distributions.view',
             'media-distributions.create',
+            'media-distributions.print',
 
             'media-returns.view',
             'media-returns.create',

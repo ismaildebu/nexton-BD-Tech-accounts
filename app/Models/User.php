@@ -96,7 +96,7 @@ class User extends Authenticatable
 
     $legacyMap = [
         'Admin'      => 'admin',
-        'Manager'    => 'manager',
+        'Manager'      => 'accountant',
         'Accountant' => 'accountant',
     ];
 
@@ -150,3 +150,5 @@ class User extends Authenticatable
         return $this->hasMany(Transaction::class, 'cancelled_by');
     }
 }
+
+

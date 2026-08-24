@@ -15,8 +15,8 @@
             <div>
                 <span class="text-slate-500">Status:</span>
                 <span class="ml-1 px-2 py-1 rounded-full text-xs font-medium
-                    {{ $distribution->status === 'draft' ? 'bg-slate-100 text-slate-600' : 'bg-green-50 text-green-700' }}">
-                    {{ ucfirst($distribution->status) }}
+                    {{ $distribution->status === \App\Models\MediaDistribution::STATUS_CONFIRMED ? 'bg-green-50 text-green-700' : ($distribution->status === \App\Models\MediaDistribution::STATUS_CANCELLED ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-600') }}">
+                    {{ $distribution->status }}
                 </span>
             </div>
             <div>
@@ -68,10 +68,22 @@
             </tfoot>
         </table>
 
-        <div class="pt-4 border-t mt-4">
+        <div class="pt-4 border-t mt-4 flex items-center justify-between">
             <a href="{{ route('media.distributions.index') }}" class="text-blue-600 hover:underline text-sm">
                 ← Back to Distributions
             </a>
+            @can('print', $distribution)
+                <div class="flex gap-3">
+                    <a href="{{ route('media.distributions.dispatch-sheet', $distribution) }}"
+                       class="text-sm px-3 py-1.5 rounded-lg bg-slate-800 text-white hover:bg-slate-700">
+                        Dispatch Sheet (PDF)
+                    </a>
+                    <a href="{{ route('media.distributions.bundle-slips', $distribution) }}"
+                       class="text-sm px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50">
+                        Bundle Slips (PDF)
+                    </a>
+                </div>
+            @endcan
         </div>
     </div>
 </div>

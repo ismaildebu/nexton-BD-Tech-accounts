@@ -9,122 +9,167 @@ use App\Models\LedgerEntry;
 use App\Models\Transaction;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 
 final class LedgerPostingService
 {
     /**
-     * Post a transaction: generate ledger entries and mark as posted.
+     * Post an approved transaction to the ledger.
      *
      * @throws LedgerPostingException
      */
     public function post(Transaction $transaction): void
     {
-        if ($transaction->isPosted()) {
-            throw new LedgerPostingException(
-                "Transaction #{$transaction->id} is already posted."
-            );
-        }
+        DB::transaction(function () use ($transaction): void {
+            $transaction->refresh();
 
-        if ($transaction->isCancelled()) {
-            throw new LedgerPostingException(
-                "Cancelled transaction #{$transaction->id} cannot be posted."
-            );
-        }
+            if ($transaction->isPosted()) {
+                throw new LedgerPostingException(
+                    "Transaction #{$transaction->id} is already posted."
+                );
+            }
 
-        if (! $transaction->isApproved()) {
-            throw new LedgerPostingException(
-                "Transaction #{$transaction->id} must be approved before it can be posted."
-            );
-        }
+            if ($transaction->isCancelled()) {
+                throw new LedgerPostingException(
+                    "Cancelled transaction #{$transaction->id} cannot be posted."
+                );
+            }
 
-        $this->preventDuplicateLedgerEntries($transaction);
+            if (! $transaction->isApproved()) {
+                throw new LedgerPostingException(
+                    "Transaction #{$transaction->id} must be approved before it can be posted."
+                );
+            }
 
-        $transaction->loadMissing('details');
+            $transaction->loadMissing('details');
 
-        $this->generateLedgerEntries($transaction);
+            if ($transaction->details->isEmpty()) {
+                throw new LedgerPostingException(
+                    "Transaction #{$transaction->id} has no detail lines to post."
+                );
+            }
 
-        $transaction->update([
-            'status'    => Transaction::STATUS_POSTED,
-            'posted_by' => Auth::id(),
-            'posted_at' => Carbon::now(),
-        ]);
+            if (! $transaction->is_balanced) {
+                throw new LedgerPostingException(
+                    "Transaction #{$transaction->id} is not balanced."
+                );
+            }
+
+            $this->preventDuplicateLedgerEntries($transaction);
+
+            $this->generateLedgerEntries($transaction);
+
+            $transaction->update([
+                'status'    => Transaction::STATUS_POSTED,
+                'posted_by' => Auth::id(),
+                'posted_at' => Carbon::now(),
+            ]);
+        });
     }
 
     /**
-     * Cancel a posted transaction: reverse ledger entries and mark as cancelled.
+     * Cancel a transaction and reverse its active ledger entries.
+     *
+     * The original ledger entries are marked as reversed.
+     * New reversal entries remain active.
      *
      * @throws LedgerPostingException
      */
     public function cancel(Transaction $transaction, string $reason): void
     {
-        if ($transaction->isCancelled()) {
-            throw new LedgerPostingException(
-                "Transaction #{$transaction->id} is already cancelled."
-            );
-        }
+        DB::transaction(function () use ($transaction, $reason): void {
+            $transaction->refresh();
 
-        if ($transaction->isDraft()) {
-            throw new LedgerPostingException(
-                "Draft transaction #{$transaction->id} cannot be cancelled via reversal. Use delete instead."
-            );
-        }
+            if ($transaction->isCancelled()) {
+                throw new LedgerPostingException(
+                    "Transaction #{$transaction->id} is already cancelled."
+                );
+            }
 
-        $this->reverseLedgerEntries($transaction);
+            if ($transaction->isDraft()) {
+                throw new LedgerPostingException(
+                    "Draft transaction #{$transaction->id} cannot be cancelled via reversal. Use delete instead."
+                );
+            }
 
-        $transaction->update([
-            'status'              => Transaction::STATUS_CANCELLED,
-            'cancelled_by'        => Auth::id(),
-            'cancelled_at'        => Carbon::now(),
-            'cancellation_reason' => $reason,
-        ]);
+            $this->reverseLedgerEntries($transaction);
+
+            $transaction->update([
+                'status'              => Transaction::STATUS_CANCELLED,
+                'cancelled_by'        => Auth::id(),
+                'cancelled_at'        => Carbon::now(),
+                'cancellation_reason' => $reason,
+            ]);
+        });
     }
 
     // ---------------------------------------------------------------
     // Private: Ledger Generation
     // ---------------------------------------------------------------
 
+    /**
+     * Generate active ledger entries from transaction detail lines.
+     *
+     * @throws LedgerPostingException
+     */
     private function generateLedgerEntries(Transaction $transaction): void
     {
-        $entries   = [];
         $entryDate = $transaction->voucher_date
             ? Carbon::parse($transaction->voucher_date)->toDateString()
             : Carbon::now()->toDateString();
 
+        $now = Carbon::now();
+
+        $entries = [];
+
         foreach ($transaction->details as $detail) {
+            if ((int) $detail->transaction_id !== (int) $transaction->id) {
+                throw new LedgerPostingException(
+                    "Transaction detail #{$detail->id} does not belong to transaction #{$transaction->id}."
+                );
+            }
+
             $entries[] = [
                 'transaction_id'    => $transaction->id,
                 'company_id'        => $transaction->company_id,
                 'financial_year_id' => $transaction->financial_year_id,
                 'voucher_type_id'   => $transaction->voucher_type_id,
                 'account_id'        => $detail->account_id,
-                // ✅ Fix #2 এখানেও — voucher_no → voucher_number
                 'voucher_number'    => $transaction->voucher_number,
                 'voucher_date'      => $entryDate,
                 'entry_date'        => $entryDate,
-                'description'       => $detail->description ?? $transaction->narration ?? null,
-                // ✅ Fix #1 — শুধু debit_amount/credit_amount, duplicate 'debit'/'credit' বাদ
+                'description'       => $detail->description
+                    ?? $transaction->narration
+                    ?? null,
                 'debit_amount'      => $detail->debit_amount,
                 'credit_amount'     => $detail->credit_amount,
-                'is_reversed'       => false,
-                'created_at'        => Carbon::now(),
-                'updated_at'        => Carbon::now(),
-            ];
-        }
 
-        if (empty($entries)) {
-            throw new LedgerPostingException(
-                "Transaction #{$transaction->id} has no detail lines to post."
-            );
+                // Newly posted ledger entries are active.
+                'is_reversed'       => false,
+
+                'created_at'        => $now,
+                'updated_at'        => $now,
+            ];
         }
 
         LedgerEntry::insert($entries);
     }
 
+    /**
+     * Reverse only the active ledger entries belonging to this transaction
+     * and company.
+     *
+     * Original entries become reversed.
+     * Reversal entries remain active so that the cancellation is reflected
+     * in the effective ledger balance.
+     */
     private function reverseLedgerEntries(Transaction $transaction): void
     {
         $existingEntries = LedgerEntry::query()
             ->where('transaction_id', $transaction->id)
+            ->where('company_id', $transaction->company_id)
             ->where('is_reversed', false)
+            ->lockForUpdate()
             ->get();
 
         if ($existingEntries->isEmpty()) {
@@ -133,8 +178,9 @@ final class LedgerPostingService
             );
         }
 
+        $now = Carbon::now();
+
         $reversals = [];
-        $now       = Carbon::now()->toDateString();
 
         foreach ($existingEntries as $entry) {
             $reversals[] = [
@@ -144,35 +190,55 @@ final class LedgerPostingService
                 'voucher_type_id'   => $entry->voucher_type_id,
                 'account_id'        => $entry->account_id,
                 'voucher_number'    => $transaction->voucher_number,
-                'voucher_date'      => $now,
-                'entry_date'        => $now,
-                'description'       => 'Reversal: ' . ($entry->description ?? $transaction->narration ?? ''),
-                // Swap debit ↔ credit to zero-out the original entry's effect.
+                'voucher_date'      => $now->toDateString(),
+                'entry_date'        => $now->toDateString(),
+                'description'       => 'Reversal: '
+                    . ($entry->description ?? $transaction->narration ?? ''),
+
+                // Reverse debit/credit amounts.
                 'debit_amount'      => $entry->credit_amount,
                 'credit_amount'     => $entry->debit_amount,
-                // ✅ Mark reversal rows as is_reversed = true immediately.
-                //
-                // ❌ আগের সমস্যা: is_reversed = false দিয়ে insert করা হচ্ছিল।
-                //    Ledger query-তে where('is_reversed', false) থাকায়
-                //    এই reversal rows দেখা যেত এবং ভুল balance দেখাত।
-                //    যেমন: Cash account-এ 1,000 Cr দেখাত cancelled voucher-এর জন্য।
-                //
-                // ✅ সঠিক: Reversal rows audit trail হিসেবে থাকবে,
-                //    কিন্তু Ledger ও Balance Sheet-এ কখনো দেখাবে না।
-                'is_reversed'       => true,
-                'created_at'        => Carbon::now(),
-                'updated_at'        => Carbon::now(),
+
+                /*
+                 * IMPORTANT:
+                 *
+                 * The reversal entry itself remains active.
+                 * The original entry is marked as reversed below.
+                 */
+                'is_reversed'       => false,
+
+                'created_at'        => $now,
+                'updated_at'        => $now,
             ];
         }
 
+        /*
+         * Create reversal entries first.
+         */
         LedgerEntry::insert($reversals);
 
-        // Mark the original entries as reversed.
+        /*
+         * Mark only the original active entries as reversed.
+         */
         LedgerEntry::query()
             ->whereIn('id', $existingEntries->pluck('id'))
-            ->update(['is_reversed' => true]);
+            ->where('transaction_id', $transaction->id)
+            ->where('company_id', $transaction->company_id)
+            ->where('is_reversed', false)
+            ->update([
+                'is_reversed' => true,
+                'updated_at'  => $now,
+            ]);
     }
 
+    /**
+     * Prevent duplicate active ledger entries for THIS transaction only.
+     *
+     * IMPORTANT:
+     * This must never inspect unrelated transactions.
+     *
+     * @throws LedgerPostingException
+     */
     private function preventDuplicateLedgerEntries(Transaction $transaction): void
     {
         $exists = LedgerEntry::query()

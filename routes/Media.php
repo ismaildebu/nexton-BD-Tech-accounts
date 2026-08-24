@@ -115,6 +115,21 @@ Route::middleware(['auth', 'verified', 'company', 'module:media'])
                 'store'  => 'can-permission:media-distributions.create',
             ]);
 
+        // Dispatch Sheet (whole run) and Bundle Slips (per-item) PDFs —
+        // generated purely from MediaDistribution + MediaDistributionItem
+        // + MediaParty, never from hand-typed data.
+        Route::get('distributions/{distribution}/dispatch-sheet', [MediaDistributionController::class, 'dispatchSheetPdf'])
+            ->name('distributions.dispatch-sheet')
+            ->middleware('can-permission:media-distributions.print');
+
+        Route::get('distributions/{distribution}/bundle-slips', [MediaDistributionController::class, 'bundleSlipsPdf'])
+            ->name('distributions.bundle-slips')
+            ->middleware('can-permission:media-distributions.print');
+
+        Route::get('distributions/{distribution}/bundle-slips/{item}', [MediaDistributionController::class, 'bundleSlipPdf'])
+            ->name('distributions.bundle-slip')
+            ->middleware('can-permission:media-distributions.print');
+
         Route::resource('returns', MediaReturnController::class)
             ->only(['index', 'create', 'store', 'show'])
             ->middleware([

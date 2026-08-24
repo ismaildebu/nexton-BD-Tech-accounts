@@ -6,6 +6,7 @@ namespace App\Http\Requests\Media;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 class StoreMediaReturnRequest extends FormRequest
 {
@@ -14,9 +15,6 @@ class StoreMediaReturnRequest extends FormRequest
         return $this->user()?->can('media-returns.create') ?? false;
     }
 
-    /**
-     * @return array<string, array<int, mixed>|string>
-     */
     public function rules(): array
     {
         $companyId = session('company_id');
@@ -45,5 +43,19 @@ class StoreMediaReturnRequest extends FormRequest
             'items.*.paid_return_quantity' => ['required', 'integer', 'min:0'],
             'items.*.free_return_quantity' => ['required', 'integer', 'min:0'],
         ];
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $v): void {
+            $items = collect($this->input('items', []));
+            $total = $items->sum(
+                fn ($i) => (int) ($i['paid_return_quantity'] ?? 0) + (int) ($i['free_return_quantity'] ?? 0)
+            );
+
+            if ($items->isNotEmpty() && $total <= 0) {
+                $v->errors()->add('items', 'At least one item must have a return quantity greater than zero.');
+            }
+        });
     }
 }

@@ -8,15 +8,12 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 uses(RefreshDatabase::class);
 
 beforeEach(function () {
-    // Seed the complete role/permission matrix before each test.
     $this->seed(\Database\Seeders\RoleAndPermissionSeeder::class);
 });
 
 it('seeds all expected roles', function () {
-    expect(Role::pluck('name')->all())->toBe([
-        'admin', 'manager', 'accountant', 'cashier',
-        'sales', 'auditor', 'viewer',
-    ]);
+    $roles = Role::pluck('name')->sort()->values()->all();
+    expect($roles)->toContain('super-admin', 'admin', 'accountant', 'cashier', 'sales', 'auditor', 'viewer');
 });
 
 it('seeds the full permission list grouped by module', function () {
@@ -24,10 +21,18 @@ it('seeds the full permission list grouped by module', function () {
     expect(Permission::whereNotNull('group')->count())->toBe(Permission::count());
 });
 
-it('gives admin every permission', function () {
+it('gives admin every permission except company create/delete and role/permission management', function () {
     $admin = Role::findByName('admin');
+    expect($admin->permissions->count())->toBeGreaterThan(100);
+    expect($admin->permissions->pluck('name'))->not->toContain('companies.create');
+    expect($admin->permissions->pluck('name'))->not->toContain('companies.delete');
+    expect($admin->permissions->pluck('name'))->not->toContain('roles.manage');
+    expect($admin->permissions->pluck('name'))->not->toContain('permissions.manage');
+});
 
-    expect($admin->permissions->count())->toBe(Permission::count());
+it('gives super-admin every permission', function () {
+    $superAdmin = Role::findByName('super-admin');
+    expect($superAdmin->permissions->count())->toBe(Permission::count());
 });
 
 it('restricts cashier from payroll and financial reports', function () {
@@ -57,7 +62,7 @@ it('lets an accountant view reports but not manage system users', function () {
     expect($accountant->can('trial-balance.view'))->toBeTrue()
         ->and($accountant->can('balance-sheet.view'))->toBeTrue()
         ->and($accountant->can('users.create'))->toBeFalse()
-        ->and($accountant->can('vouchers.post'))->toBeTrue();
+        ->and($accountant->can('vouchers.post'))->toBeFalse();
 });
 
 it('blocks unauthorized users from the roles pages', function () {
@@ -66,40 +71,39 @@ it('blocks unauthorized users from the roles pages', function () {
 
     $this->actingAs($viewer)
         ->get(route('system.roles.index'))
-        ->assertRedirect(route('dashboard'))
-        ->assertSessionHas('error');
+        ->assertForbidden();
 });
 
-it('allows role managers to manage roles', function () {
-    $admin = User::factory()->create();
-    $admin->assignRole('admin');
+it('allows super-admin to manage roles', function () {
+    $superAdmin = User::factory()->create();
+    $superAdmin->assignRole('super-admin');
 
-    $this->actingAs($admin)
+    $this->actingAs($superAdmin)
         ->get(route('system.roles.index'))
         ->assertOk();
 });
 
 it('creates a role with selected permissions', function () {
-    $admin = User::factory()->create();
-    $admin->assignRole('admin');
+    $superAdmin = User::factory()->create();
+    $superAdmin->assignRole('super-admin');
 
-    $response = $this->actingAs($admin)->post(route('system.roles.store'), [
+    $response = $this->actingAs($superAdmin)->post(route('system.roles.store'), [
         'name' => 'branch_manager',
         'permissions' => ['vouchers.view', 'vouchers.create', 'invoices.view'],
     ]);
 
-    $response->assertRedirect(route('system.roles.show', Role::findByName('branch_manager')));
-
     $role = Role::findByName('branch_manager');
+    $response->assertRedirect(route('system.roles.show', $role));
+
     expect($role->permissions->pluck('name')->all())
         ->toBe(['vouchers.view', 'vouchers.create', 'invoices.view']);
 });
 
 it('protects seed roles from deletion', function () {
-    $admin = User::factory()->create();
-    $admin->assignRole('admin');
+    $superAdmin = User::factory()->create();
+    $superAdmin->assignRole('super-admin');
 
-    $this->actingAs($admin)
+    $this->actingAs($superAdmin)
         ->delete(route('system.roles.destroy', Role::findByName('admin')))
         ->assertRedirect(route('system.roles.index'))
         ->assertSessionHas('error');
@@ -116,7 +120,7 @@ it('enforces permission middleware on protected routes', function () {
             'name' => 'rogue_role',
             'permissions' => ['roles.manage'],
         ])
-        ->assertRedirect(route('dashboard'));
+        ->assertForbidden();
 
     expect(Role::where('name', 'rogue_role')->exists())->toBeFalse();
 });

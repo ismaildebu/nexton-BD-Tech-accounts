@@ -18,17 +18,26 @@ class RegisteredUserController extends Controller
 {
     /**
      * Display the registration view.
+     *
+     * Registration is available only during initial system bootstrap.
      */
     public function create(): View
     {
+        $this->ensureRegistrationAllowed();
+
         return view('auth.register');
     }
 
     /**
      * Handle an incoming registration request.
+     *
+     * The first registered user becomes Super Admin.
+     * Public registration is permanently blocked once a user exists.
      */
     public function store(Request $request): RedirectResponse
     {
+        $this->ensureRegistrationAllowed();
+
         $request->validate([
             'name' => [
                 'required',
@@ -55,39 +64,50 @@ class RegisteredUserController extends Controller
         | Bootstrap First User
         |--------------------------------------------------------------------------
         |
-        | On a fresh installation the first registered user becomes the
-        | Super Admin automatically.
+        | This check is intentionally performed again immediately before
+        | creating the user. The registration endpoint must never rely only
+        | on the GET request being protected.
         |
         */
         $isFirstUser = User::query()->doesntExist();
 
+        if (! $isFirstUser) {
+            abort(403, 'Public registration is disabled.');
+        }
+
         $user = User::create([
             'name' => $request->string('name')->toString(),
             'email' => $request->string('email')->lower()->toString(),
-            'password' => Hash::make($request->string('password')->toString()),
-            'role' => $isFirstUser ? 'Admin' : 'Accountant',
+            'password' => Hash::make(
+                $request->string('password')->toString()
+            ),
+            'role' => 'Admin',
             'status' => true,
         ]);
 
         /*
         |--------------------------------------------------------------------------
-        | Assign Spatie Role
+        | Assign Super Admin Role
         |--------------------------------------------------------------------------
-        |
-        | The first user becomes Super Admin.
-        | Other users receive the role mapped from the legacy role column.
-        |
         */
-        if ($isFirstUser) {
-            $user->syncRoles(['super-admin']);
-        } else {
-            $user->syncLegacyRole();
-        }
+        $user->syncRoles(['super-admin']);
 
         event(new Registered($user));
 
         Auth::login($user);
 
-        return redirect('/dashboard');
+        return redirect()->route('dashboard.index');
+    }
+
+    /**
+     * Ensure public registration is still available.
+     *
+     * Registration is allowed only when the database contains no users.
+     */
+    private function ensureRegistrationAllowed(): void
+    {
+        if (User::query()->exists()) {
+            abort(403, 'Public registration is disabled.');
+        }
     }
 }
