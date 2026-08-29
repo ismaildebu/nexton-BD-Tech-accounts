@@ -1,13 +1,22 @@
 <?php
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Models\FinancialYear;
 use App\Models\Company;
+use App\Services\PlanLimitService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 class FinancialYearController extends Controller
 {
+    use EnforcesPlanLimits;
+
+    public function __construct(
+        private readonly PlanLimitService $planLimitService,
+    ) {
+    }
+
     /**
      * Display a listing of the resource.
      */
@@ -46,6 +55,13 @@ class FinancialYearController extends Controller
         'start_date' => 'required|date',
         'end_date'   => 'required|date|after:start_date',
     ]);
+
+    $this->enforcePlanLimit(
+        $this->planLimitService,
+        $companyId,
+        'financial_years',
+        FinancialYear::where('company_id', $companyId)->count(),
+    );
 
     \App\Models\FinancialYear::create([
         'company_id' => $companyId,

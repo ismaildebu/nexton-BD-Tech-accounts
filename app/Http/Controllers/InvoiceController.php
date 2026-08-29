@@ -2,14 +2,23 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Models\Customer;
 use App\Models\Invoice;
+use App\Services\PlanLimitService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class InvoiceController extends Controller
 {
+    use EnforcesPlanLimits;
+
+    public function __construct(
+        private readonly PlanLimitService $planLimitService,
+    ) {
+    }
+
     /**
      * List invoices for the current company.
      */
@@ -52,6 +61,16 @@ class InvoiceController extends Controller
             'due_date'      => ['nullable', 'date', 'after_or_equal:invoice_date'],
             'total_amount'  => ['required', 'numeric', 'min:0'],
         ]);
+
+        $this->enforcePlanLimit(
+            $this->planLimitService,
+            $companyId,
+            'invoices_monthly',
+            Invoice::where('company_id', $companyId)
+                ->whereMonth('created_at', now()->month)
+                ->whereYear('created_at', now()->year)
+                ->count(),
+        );
 
         DB::transaction(function () use ($validated, $companyId) {
             Invoice::create([

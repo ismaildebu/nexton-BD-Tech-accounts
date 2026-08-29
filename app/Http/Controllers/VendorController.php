@@ -2,12 +2,21 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Models\Vendor;
+use App\Services\PlanLimitService;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 class VendorController extends Controller
 {
+    use EnforcesPlanLimits;
+
+    public function __construct(
+        private readonly PlanLimitService $planLimitService,
+    ) {
+    }
+
     public function index()
     {
         $company_id = session('company_id');
@@ -29,6 +38,13 @@ class VendorController extends Controller
             'phone' => 'nullable|string|max:20',
             'email' => 'nullable|email|max:255',
         ]);
+
+        $this->enforcePlanLimit(
+            $this->planLimitService,
+            session('company_id'),
+            'vendors',
+            Vendor::where('company_id', session('company_id'))->count(),
+        );
 
         Vendor::create([
             'company_id'      => session('company_id'),

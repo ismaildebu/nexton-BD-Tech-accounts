@@ -42,7 +42,7 @@ class LoginRequest extends FormRequest
     {
         $this->ensureIsNotRateLimited();
 
-        if (! Auth::attempt(array_merge($this->only('email', 'password'), ['status' => true]), $this->boolean('remember'))) {
+        if (! Auth::attempt(array_merge($this->only('email', 'password'), ['status' => 1]), $this->boolean('remember'))) {
             RateLimiter::hit($this->throttleKey());
 
             throw ValidationException::withMessages([
@@ -84,4 +84,3 @@ class LoginRequest extends FormRequest
         return Str::transliterate(Str::lower($this->string('email')).'|'.$this->ip());
     }
 }
-

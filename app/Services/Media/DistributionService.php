@@ -194,5 +194,20 @@ final class DistributionService
 
             return $header->fresh(['items.party', 'publication']);
         });
+
+        // DistributionService::create() এর transaction-এর শেষে
+            $header->update(['status' => MediaDistribution::STATUS_CONFIRMED]);
+
+            // ✅ Accounting entry
+            try {
+                $this->accountingService->postDistribution($header->fresh(['items.party', 'publication']));
+            } catch (\InvalidArgumentException $e) {
+                // Account configure না থাকলে distribution তবুও হবে,
+                // শুধু accounting skip হবে — log করুন
+                \Log::warning("Media Distribution #{$header->id} accounting skipped: {$e->getMessage()}");
+            }
+
+            return $header->fresh(['items.party', 'publication']);
+
     }
 }

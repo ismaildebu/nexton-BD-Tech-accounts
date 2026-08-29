@@ -6,12 +6,14 @@ namespace App\Http\Controllers;
 
 use App\Exceptions\LedgerPostingException;
 use App\Exceptions\VoucherValidationException;
+use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Requests\StoreVoucherRequest;
 use App\Http\Requests\UpdateVoucherRequest;
 use App\Models\Account;
 use App\Models\FinancialYear;
 use App\Models\Transaction;
 use App\Models\VoucherType;
+use App\Services\PlanLimitService;
 use App\Services\VoucherService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -19,8 +21,11 @@ use Illuminate\View\View;
 
 class VoucherController extends Controller
 {
+    use EnforcesPlanLimits;
+
     public function __construct(
         private readonly VoucherService $voucherService,
+        private readonly PlanLimitService $planLimitService,
     ) {}
 
     // ---------------------------------------------------------------
@@ -182,6 +187,22 @@ class VoucherController extends Controller
             $data = $request->validated();
 
             $data['company_id'] = (int) session('company_id');
+
+            // "journal_vouchers_monthly" covers every voucher created
+            // through this controller (Payment/Receipt/Journal/Contra,
+            // etc.) - VoucherType has no separate "is_journal" flag, and
+            // this is the app's one generic transactional-entry mechanism,
+            // consistent with how invoices/expenses/orders are each
+            // capped per month elsewhere.
+            $this->enforcePlanLimit(
+                $this->planLimitService,
+                $data['company_id'],
+                'journal_vouchers_monthly',
+                Transaction::where('company_id', $data['company_id'])
+                    ->whereMonth('created_at', now()->month)
+                    ->whereYear('created_at', now()->year)
+                    ->count(),
+            );
 
             /*
              * New voucher can only be created as Draft

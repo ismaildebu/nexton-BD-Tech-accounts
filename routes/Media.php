@@ -5,11 +5,13 @@ declare(strict_types=1);
 use App\Http\Controllers\Media\MediaCollectionController;
 use App\Http\Controllers\Media\MediaDistributionController;
 use App\Http\Controllers\Media\MediaPartyController;
+use App\Http\Controllers\Media\MediaReportController;
 use App\Http\Controllers\Media\MediaReturnController;
 use App\Http\Controllers\Media\PrintOrderController;
 use App\Http\Controllers\Media\PrintPlanController;
 use App\Http\Controllers\Media\PublicationController;
 use Illuminate\Support\Facades\Route;
+
 
 /*
 |--------------------------------------------------------------------------
@@ -27,7 +29,7 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::middleware(['auth', 'verified', 'company', 'module:media'])
+Route::middleware(['auth', 'verified', 'company', 'module:media', 'plan-feature:media'])
     ->prefix('media')
     ->name('media.')
     ->group(function (): void {
@@ -147,4 +149,25 @@ Route::middleware(['auth', 'verified', 'company', 'module:media'])
                 'create' => 'can-permission:media-collections.create',
                 'store'  => 'can-permission:media-collections.create',
             ]);
+
+            // ─── Media Reports ────────────────────────────────────────────────────────
+        Route::prefix('reports')->name('reports.')->group(function () {
+            Route::get('stock', [MediaReportController::class, 'stockReport'])
+                ->name('stock')->middleware('can-permission:media-reports.view');
+            Route::get('stock/pdf', [MediaReportController::class, 'stockReportPdf'])
+                ->name('stock.pdf')->middleware('can-permission:media-reports.view');
+            Route::get('distribution-summary', [MediaReportController::class, 'distributionSummary'])
+                ->name('distribution-summary')->middleware('can-permission:media-reports.view');
+            Route::get('distribution-summary/pdf', [MediaReportController::class, 'distributionSummaryPdf'])
+                ->name('distribution-summary.pdf')->middleware('can-permission:media-reports.view');
+            Route::get('return-summary', [MediaReportController::class, 'returnSummary'])
+                ->name('return-summary')->middleware('can-permission:media-reports.view');
+            Route::get('collection-summary', [MediaReportController::class, 'collectionSummary'])
+                ->name('collection-summary')->middleware('can-permission:media-reports.view');
+            Route::get('party-ledger', [MediaReportController::class, 'partyLedger'])
+                ->name('party-ledger')->middleware('can-permission:media-reports.view');
+            Route::get('party-ledger/pdf', [MediaReportController::class, 'partyLedgerPdf'])
+                ->name('party-ledger.pdf')->middleware('can-permission:media-reports.view');
+        });
+
     });

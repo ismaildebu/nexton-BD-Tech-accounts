@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Facades\DB;
 use App\Models\Transaction;
 use App\Models\Publication;
 use App\Models\MediaParty;
@@ -18,30 +19,33 @@ use Illuminate\Support\Facades\Gate;
 
 class AppServiceProvider extends ServiceProvider
 {
-    /**
-     * Register any application services.
-     */
     public function register(): void
     {
         //
     }
 
-    /**
-     * Bootstrap any application services.
-     */
-   
     public function boot(): void
-{
-    Gate::policy(Transaction::class, VoucherPolicy::class);
+    {
+        // SQLite testing-এ NOW() support যোগ করুন
+        if (config('database.default') === 'sqlite') {
+            try {
+                DB::connection()->getPdo()->sqliteCreateFunction('NOW', function () {
+                    return date('Y-m-d H:i:s');
+                });
+            } catch (\Exception $e) {
+                //
+            }
+        }
 
-    Gate::policy(Publication::class, ModulePolicy::class);
-    Gate::policy(MediaParty::class, ModulePolicy::class);
-    Gate::policy(PrintPlan::class, ModulePolicy::class);
-    Gate::policy(PrintOrder::class, ModulePolicy::class);
-    Gate::policy(MediaDistribution::class, ModulePolicy::class);
-    Gate::policy(MediaReturn::class, ModulePolicy::class);
-    Gate::policy(MediaCollection::class, ModulePolicy::class);
+        Gate::policy(Transaction::class, VoucherPolicy::class);
+        Gate::policy(Publication::class, ModulePolicy::class);
+        Gate::policy(MediaParty::class, ModulePolicy::class);
+        Gate::policy(PrintPlan::class, ModulePolicy::class);
+        Gate::policy(PrintOrder::class, ModulePolicy::class);
+        Gate::policy(MediaDistribution::class, ModulePolicy::class);
+        Gate::policy(MediaReturn::class, ModulePolicy::class);
+        Gate::policy(MediaCollection::class, ModulePolicy::class);
 
-    Paginator::defaultView('vendor.pagination.tailwind');
-}
+        Paginator::defaultView('vendor.pagination.tailwind');
+    }
 }

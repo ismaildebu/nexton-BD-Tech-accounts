@@ -197,6 +197,7 @@ class RoleAndPermissionSeeder extends Seeder
 
         'media-collections.view'     => 'media',
         'media-collections.create'   => 'media',
+        'media-reports.view'         => 'media',
     ];
 
     /**
@@ -369,6 +370,7 @@ class RoleAndPermissionSeeder extends Seeder
 
             'media-collections.view',
             'media-collections.create',
+            'media-reports.view',
         ],
 
         // =========================================================

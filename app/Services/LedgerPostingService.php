@@ -16,12 +16,28 @@ final class LedgerPostingService
     /**
      * Post an approved transaction to the ledger.
      *
+     * ✅ FIX #3: Added pessimistic locking with lockForUpdate()
+     * Prevents race condition where two concurrent requests both
+     * read is_posted() = false and both proceed to create ledger entries.
+     *
      * @throws LedgerPostingException
      */
     public function post(Transaction $transaction): void
     {
         DB::transaction(function () use ($transaction): void {
-            $transaction->refresh();
+            // ========================================================
+            // Acquire lock to prevent concurrent posting
+            // ========================================================
+            $transaction = Transaction::query()
+                ->where('id', $transaction->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($transaction === null) {
+                throw new LedgerPostingException(
+                    "Transaction could not be locked for posting. It may have been deleted."
+                );
+            }
 
             if ($transaction->isPosted()) {
                 throw new LedgerPostingException(
@@ -38,6 +54,15 @@ final class LedgerPostingService
             if (! $transaction->isApproved()) {
                 throw new LedgerPostingException(
                     "Transaction #{$transaction->id} must be approved before it can be posted."
+                );
+            }
+
+            // ========================================================
+            // ✅ BONUS FIX #4: Verify financial year is not closed
+            // ========================================================
+            if ($transaction->financialYear && $transaction->financialYear->is_closed) {
+                throw new LedgerPostingException(
+                    "Transaction #{$transaction->id} cannot be posted. The financial year is closed."
                 );
             }
 
@@ -73,12 +98,27 @@ final class LedgerPostingService
      * The original ledger entries are marked as reversed.
      * New reversal entries remain active.
      *
+     * ✅ FIX #3: Added pessimistic locking with lockForUpdate()
+     * Prevents concurrent cancellation of the same transaction.
+     *
      * @throws LedgerPostingException
      */
     public function cancel(Transaction $transaction, string $reason): void
     {
         DB::transaction(function () use ($transaction, $reason): void {
-            $transaction->refresh();
+            // ========================================================
+            // Acquire lock to prevent concurrent cancellation
+            // ========================================================
+            $transaction = Transaction::query()
+                ->where('id', $transaction->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($transaction === null) {
+                throw new LedgerPostingException(
+                    "Transaction could not be locked for cancellation. It may have been deleted."
+                );
+            }
 
             if ($transaction->isCancelled()) {
                 throw new LedgerPostingException(

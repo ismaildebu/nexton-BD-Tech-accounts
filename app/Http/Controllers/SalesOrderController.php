@@ -2,15 +2,27 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Models\SalesOrder;
 use App\Models\SalesOrderItem;
 use App\Models\Customer;
+use App\Services\PlanLimitService;
+use App\Services\VoucherService;
+use App\Services\SalesOrderAccountingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class SalesOrderController extends Controller
 {
+    use EnforcesPlanLimits;
+
+    public function __construct(
+        private readonly PlanLimitService $planLimitService,
+        private readonly SalesOrderAccountingService $accountingService,
+    ) {
+    }
+
     public function index()
     {
         $company_id = session('company_id');
@@ -56,6 +68,16 @@ class SalesOrderController extends Controller
             'items.*.unit'        => 'nullable|string|max:50',
             'items.*.unit_price'  => 'required|numeric|min:0',
         ]);
+
+        $this->enforcePlanLimit(
+            $this->planLimitService,
+            $company_id,
+            'sales_orders_monthly',
+            SalesOrder::where('company_id', $company_id)
+                ->whereMonth('created_at', now()->month)
+                ->whereYear('created_at', now()->year)
+                ->count(),
+        );
 
         $order = DB::transaction(function () use ($validated, $company_id) {
             // Lock the row count read + so_number generation and the
@@ -122,8 +144,31 @@ class SalesOrderController extends Controller
         $request->validate([
             'status' => 'required|in:Draft,Confirmed,Delivered,Cancelled'
         ]);
-        $salesOrder->update(['status' => $request->status]);
-        return back()->with('success', 'Status updated!');
+
+        $newStatus = $request->status;
+        $oldStatus = $salesOrder->status;
+
+        try {
+            // ---------------------------------------------------------------
+            // Trigger accounting actions based on status transition
+            // ---------------------------------------------------------------
+            if ($newStatus === 'Confirmed' && $oldStatus === 'Draft') {
+                // Confirmed: Create Sales Journal (Dr A/R, Cr Sales Revenue)
+                $this->accountingService->onConfirmed($salesOrder);
+            }
+
+            if ($newStatus === 'Cancelled' && $oldStatus !== 'Draft') {
+                // Cancelled: Create reversal entries
+                $this->accountingService->onCancelled($salesOrder);
+            }
+
+            // Update status
+            $salesOrder->update(['status' => $newStatus]);
+
+            return back()->with('success', "Sales Order status updated to {$newStatus}!");
+        } catch (\Exception $e) {
+            return back()->with('error', "Failed to update status: {$e->getMessage()}");
+        }
     }
 
     public function destroy(SalesOrder $salesOrder)

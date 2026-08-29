@@ -13,11 +13,20 @@ use Illuminate\View\View;
 class UserController extends Controller
 {
     /**
-     * Allowed role options for the application.
+     * Super Admin can assign any of these roles.
+     * 'Admin' is intentionally excluded — Admins are only created
+     * automatically when a new Company is created by Super Admin.
      *
      * @var array<int, string>
      */
-    private const ROLES = ['Admin', 'Manager', 'Accountant'];
+    private const SUPER_ADMIN_ROLES = ['Manager', 'Accountant', 'Cashier', 'Sales', 'Auditor', 'Viewer'];
+
+    /**
+     * Company Admin can create users for their own company with these roles.
+     *
+     * @var array<int, string>
+     */
+    private const ADMIN_ROLES = ['Manager', 'Accountant', 'Cashier', 'Sales', 'Auditor', 'Viewer'];
 
     /**
      * Display a listing of the users.
@@ -48,12 +57,12 @@ class UserController extends Controller
 
     /**
      * Show the form for creating a new user.
-     * Admin's company is fixed (hidden field); Super Admin picks from a list.
+     * Admin's company is fixed; Super Admin picks from a list.
      */
     public function create(Request $request): View
     {
-        $roles = self::ROLES;
         $authUser = $request->user();
+        $roles    = $authUser->isSuperAdmin() ? self::SUPER_ADMIN_ROLES : self::ADMIN_ROLES;
 
         $companies = $authUser->isSuperAdmin()
             ? Company::orderBy('company_name')->get()
@@ -69,13 +78,14 @@ class UserController extends Controller
      */
     public function store(Request $request): RedirectResponse
     {
-        $authUser = $request->user();
+        $authUser     = $request->user();
+        $allowedRoles = $authUser->isSuperAdmin() ? self::SUPER_ADMIN_ROLES : self::ADMIN_ROLES;
 
         $rules = [
             'name'     => ['required', 'string', 'max:255'],
             'email'    => ['required', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'string', 'min:6', 'confirmed'],
-            'role'     => ['required', 'string', Rule::in(self::ROLES)],
+            'role'     => ['required', 'string', Rule::in($allowedRoles)],
             'status'   => ['nullable', 'boolean'],
         ];
 
@@ -85,21 +95,34 @@ class UserController extends Controller
 
         $validated = $request->validate($rules);
 
-        $companyId = $authUser->isSuperAdmin()
-            ? ($validated['company_id'] ?? null)
-            : $authUser->company_id;
+       $companyId = $authUser->isSuperAdmin()
+    ? ($validated['company_id'] ?? null)
+    : $authUser->company_id;
 
-        $user = User::create([
-            'name'       => $validated['name'],
-            'email'      => $validated['email'],
-            'password'   => Hash::make($validated['password']),
-            'role'       => $validated['role'],
-            'status'     => $request->boolean('status'),
-            'company_id' => $companyId,
-        ]);
+                // Plan user limit check
+                if ($companyId) {
+                    $company = Company::find($companyId);
+                    if ($company && $company->owner_id) {
+                        $owner       = User::find($company->owner_id);
+                        $currentCount = User::where('company_id', $companyId)->count();
+                        if ($owner && ! app(\App\Services\PlanLimitService::class)->canUse($owner, 'users', $currentCount)) {
+                            abort(403, 'User limit reached for the current plan.');
+                        }
+                    }
+                }
 
-        // Keep the spatie role in sync with the legacy role select so
-        // permission checks work immediately for the new user.
+                $user = User::create([
+
+                    'name'       => $validated['name'],
+                    'email'      => $validated['email'],
+                    'password'   => Hash::make($validated['password']),
+                    'role'       => $validated['role'],
+                    'status'     => $request->boolean('status'),
+                    'company_id' => $companyId,
+                ]);
+
+        // Sync Spatie role from the legacy role column so permission
+        // checks work immediately for the new user.
         $user->syncLegacyRole();
 
         return redirect()
@@ -107,68 +130,69 @@ class UserController extends Controller
             ->with('success', 'User created successfully.');
     }
 
+    /**
+     * Show role & permission assignment page for a user.
+     */
+    public function roleAssignment(Request $request, User $user): View
+    {
+        $this->authorizeUserAccess($request, $user);
 
-public function roleAssignment(Request $request, User $user): View
-{
-    $this->authorizeUserAccess($request, $user);
+        $availableRoles = \App\Models\Role::with('permissions')
+            ->when(! $request->user()->isSuperAdmin(), function ($query) {
+                // Admin cannot hand out the super-admin role to anyone.
+                $query->where('name', '!=', 'super-admin');
+            })
+            ->orderBy('name')
+            ->get();
 
-    $availableRoles = \App\Models\Role::with('permissions')
-        ->when(! $request->user()->isSuperAdmin(), function ($query) {
-            // Admin cannot hand out the super-admin role to anyone.
-            $query->where('name', '!=', 'super-admin');
-        })
-        ->orderBy('name')
-        ->get();
+        $userRoles         = $user->roles;
+        $directPermissions = $user->permissions;
+        $userPermissions   = $user->getAllPermissions();
 
-    $userRoles = $user->roles;
+        $permissions = \App\Models\Permission::query()
+            ->orderBy('group')
+            ->orderBy('name')
+            ->get();
 
-    $permissions = \App\Models\Permission::query()
-        ->orderBy('group')
-        ->orderBy('name')
-        ->get();
+        $groups = $permissions
+            ->pluck('group')
+            ->filter()
+            ->unique()
+            ->values();
 
-    $groups = $permissions
-        ->pluck('group')
-        ->filter()
-        ->unique()
-        ->values();
-
-    $directPermissions = $user->permissions;
-
-    $userPermissions = $user->getAllPermissions();
-
-   return view('users.roles', compact(
-    'user',
-    'availableRoles',
-    'userRoles',
-    'groups',
-    'permissions',
-    'directPermissions',
-    'userPermissions',
-));
-}
-
-public function updateRole(Request $request, User $user): RedirectResponse
-{
-    $this->authorizeUserAccess($request, $user);
-
-    $validated = $request->validate([
-        'role' => ['required', 'string', 'exists:roles,name'],
-    ]);
-
-    // Admin can never grant (or already-super-admin users lose) the
-    // super-admin role — that stays a Super Admin only action.
-    if (! $request->user()->isSuperAdmin() && $validated['role'] === 'super-admin') {
-        abort(403, 'Only Super Admin can grant the super-admin role.');
+        return view('users.roles', compact(
+            'user',
+            'availableRoles',
+            'userRoles',
+            'groups',
+            'permissions',
+            'directPermissions',
+            'userPermissions',
+        ));
     }
 
-    $user->syncRoles([$validated['role']]);
+    /**
+     * Update the Spatie role for a user.
+     */
+    public function updateRole(Request $request, User $user): RedirectResponse
+    {
+        $this->authorizeUserAccess($request, $user);
 
-    return redirect()
-        ->route('system.users.roles', $user)
-        ->with('success', 'User role updated successfully.');
-}
+        $validated = $request->validate([
+            'role' => ['required', 'string', 'exists:roles,name'],
+        ]);
 
+        // Admin can never grant the super-admin role.
+        if (! $request->user()->isSuperAdmin() && $validated['role'] === 'super-admin') {
+            abort(403, 'Only Super Admin can grant the super-admin role.');
+        }
+
+        $user->syncRoles([$validated['role']]);
+
+        return redirect()
+            ->route('system.users.roles', $user)
+            ->with('success', 'User role updated successfully.');
+    }
 
     /**
      * Display a single user (redirects to edit — no dedicated show view).
@@ -187,8 +211,8 @@ public function updateRole(Request $request, User $user): RedirectResponse
     {
         $this->authorizeUserAccess($request, $user);
 
-        $roles = self::ROLES;
         $authUser = $request->user();
+        $roles    = $authUser->isSuperAdmin() ? self::SUPER_ADMIN_ROLES : self::ADMIN_ROLES;
 
         $companies = $authUser->isSuperAdmin()
             ? Company::orderBy('company_name')->get()
@@ -207,11 +231,13 @@ public function updateRole(Request $request, User $user): RedirectResponse
 
         $this->authorizeUserAccess($request, $user);
 
+        $allowedRoles = $authUser->isSuperAdmin() ? self::SUPER_ADMIN_ROLES : self::ADMIN_ROLES;
+
         $rules = [
             'name'     => ['required', 'string', 'max:255'],
             'email'    => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
             'password' => ['nullable', 'string', 'min:6', 'confirmed'],
-            'role'     => ['required', 'string', Rule::in(self::ROLES)],
+            'role'     => ['required', 'string', Rule::in($allowedRoles)],
             'status'   => ['nullable', 'boolean'],
         ];
 
@@ -221,20 +247,23 @@ public function updateRole(Request $request, User $user): RedirectResponse
 
         $validated = $request->validate($rules);
 
-        $user->name = $validated['name'];
-        $user->email = $validated['email'];
-        $user->role = $validated['role'];
+        $user->name   = $validated['name'];
+        $user->email  = $validated['email'];
+        $user->role   = $validated['role'];
         $user->status = $request->boolean('status');
 
         if ($authUser->isSuperAdmin() && array_key_exists('company_id', $validated)) {
             $user->company_id = $validated['company_id'];
         }
 
-        if (!empty($validated['password'])) {
+        if (! empty($validated['password'])) {
             $user->password = Hash::make($validated['password']);
         }
 
         $user->save();
+
+        // Keep Spatie role in sync after update.
+        $user->syncLegacyRole();
 
         return redirect()
             ->route('system.users.index')

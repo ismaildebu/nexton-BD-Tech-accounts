@@ -17,6 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'company' => \App\Http\Middleware\EnsureCompanySelected::class,
             'can-permission' => \App\Http\Middleware\CheckPermission::class,
             'module' => \App\Http\Middleware\EnsureModuleEnabled::class,
+            'plan-feature' => \App\Http\Middleware\EnsurePlanFeatureEnabled::class,
         ]);
 
         $middleware->web(append: [

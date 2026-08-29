@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
+use App\Http\Controllers\Auth\CompanySignupController;
 use App\Http\Controllers\Auth\ConfirmablePasswordController;
 use App\Http\Controllers\Auth\EmailVerificationNotificationController;
 use App\Http\Controllers\Auth\EmailVerificationPromptController;
@@ -25,6 +26,29 @@ Route::middleware('guest')->group(function () {
         ->name('register');
 
     Route::post('register', [RegisteredUserController::class, 'store']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Company Self-Signup (Free plan)
+    |--------------------------------------------------------------------------
+    |
+    | Unlike the bootstrap-only registration above, this is the ongoing
+    | public entry point: anyone may create their own company + Admin
+    | account here, auto-enrolled in the Free plan. Rate-limited against
+    | spam/bot signups. The existing Super-Admin-only CompanyController
+    | remains the manual/sales-led onboarding path.
+    |
+    */
+    Route::get('company/register', [CompanySignupController::class, 'create'])
+        ->middleware('throttle:6,1')
+        ->name('company.register');
+
+    Route::post('company/register', [CompanySignupController::class, 'store'])
+        ->middleware('throttle:6,1');
+    
+    Route::post('company/register', [CompanySignupController::class, 'store'])
+        ->middleware('throttle:6,1')
+        ->name('company.register.store'); // ✅ এটা add করুন
 
     Route::get('login', [AuthenticatedSessionController::class, 'create'])
         ->name('login');

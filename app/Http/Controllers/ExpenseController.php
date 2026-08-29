@@ -2,12 +2,20 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Models\Expense;
+use App\Services\PlanLimitService;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 class ExpenseController extends Controller
 {
+    use EnforcesPlanLimits;
+
+    public function __construct(
+        private readonly PlanLimitService $planLimitService,
+    ) {
+    }
 
     public function index()
     {
@@ -62,6 +70,16 @@ class ExpenseController extends Controller
         ]);
 
 
+
+        $this->enforcePlanLimit(
+            $this->planLimitService,
+            session('company_id'),
+            'expenses_monthly',
+            Expense::where('company_id', session('company_id'))
+                ->whereMonth('created_at', now()->month)
+                ->whereYear('created_at', now()->year)
+                ->count(),
+        );
 
         Expense::create([
 

@@ -21,21 +21,64 @@
 
 
 @section('content')
-<div class="flex justify-between items-center">
-
-    <h2 class="font-semibold text-2xl text-gray-800">
-        Cash Flow Statement
-    </h2>
-
-</div>
-
-@endsection
-
-
-@section('content')
-
 
 <div class="py-8">
+
+    <div class="max-w-5xl mx-auto mb-5">
+
+        <form method="GET" action="{{ route('cash-flow.index') }}" class="bg-white shadow rounded-lg p-4">
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+
+                <div>
+                    <label for="from_date" class="block text-sm font-medium text-gray-700 mb-1">
+                        From Date
+                    </label>
+                    <input
+                        type="date"
+                        id="from_date"
+                        name="from_date"
+                        value="{{ old('from_date', $fromDate) }}"
+                        class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    >
+                </div>
+
+                <div>
+                    <label for="to_date" class="block text-sm font-medium text-gray-700 mb-1">
+                        To Date
+                    </label>
+                    <input
+                        type="date"
+                        id="to_date"
+                        name="to_date"
+                        value="{{ old('to_date', $toDate) }}"
+                        class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    >
+                </div>
+
+                <div class="flex gap-2">
+                    <button
+                        type="submit"
+                        class="px-4 py-2 rounded-md bg-indigo-600 text-white font-medium hover:bg-indigo-700"
+                    >
+                        Apply Filter
+                    </button>
+
+                    <a
+                        href="{{ route('cash-flow.index') }}"
+                        class="px-4 py-2 rounded-md bg-gray-100 text-gray-700 font-medium hover:bg-gray-200"
+                    >
+                        Reset
+                    </a>
+                </div>
+
+            </div>
+
+        </form>
+
+    </div>
+
+    <div class="max-w-5xl mx-auto">
 
         <div class="max-w-5xl mx-auto">
 

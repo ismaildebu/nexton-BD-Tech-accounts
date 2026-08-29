@@ -2,12 +2,21 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Models\Customer;
+use App\Services\PlanLimitService;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 class CustomerController extends Controller
 {
+    use EnforcesPlanLimits;
+
+    public function __construct(
+        private readonly PlanLimitService $planLimitService,
+    ) {
+    }
+
     public function index()
     {
         $company_id = session('company_id');
@@ -30,6 +39,13 @@ class CustomerController extends Controller
             'phone' => 'nullable|string|max:20',
             'email' => 'nullable|email|max:255',
         ]);
+
+        $this->enforcePlanLimit(
+            $this->planLimitService,
+            session('company_id'),
+            'customers',
+            Customer::where('company_id', session('company_id'))->count(),
+        );
 
         Customer::create([
             'company_id'      => session('company_id'),

@@ -6,10 +6,10 @@ use App\Http\Controllers\ProfileController;
 
 Route::middleware(['auth', 'verified'])->group(function (): void {
     Route::get('/dashboard', [DashboardController::class, 'index'])
-        ->name('dashboard');
+        ->middleware('can-permission:dashboard.view')->name('dashboard');
 
     Route::get('/dashboard/redirect', fn() => redirect()->route('dashboard'))
-        ->name('dashboard.index');
+        ->middleware('can-permission:dashboard.view')->name('dashboard.index');
 
     // Profile
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');

@@ -6,12 +6,19 @@ use App\Models\Account;
 use App\Models\AccountTemplate;
 use App\Models\Company;
 use App\Models\User;
+use App\Services\SubscriptionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use App\Models\FinancialYear;
 
 class CompanyController extends Controller
 {
+    public function __construct(
+        private readonly SubscriptionService $subscriptionService,
+    ) {
+    }
+
     /**
      * Company List
      * Super Admin -> all companies. Everyone else -> only their own.
@@ -100,6 +107,25 @@ class CompanyController extends Controller
             ]);
 
             $admin->syncRoles(['admin']);
+            // Auto-create the company's first Financial Year.
+                FinancialYear::create([
+                    'company_id' => $company->id,
+                    'year_name'  => 'FY ' . now()->year . '-' . now()->addYear()->year,
+                    'start_date' => now()->startOfYear()->toDateString(),
+                    'end_date'   => now()->endOfYear()->toDateString(),
+                    'is_active'  => true,
+                ]);
+
+            // This newly created Admin becomes the billing owner of the
+            // company (governs the "companies"/"users" plan limits going
+            // forward). Note: company creation through this Super-Admin-only
+            // endpoint is intentionally NOT limited by any plan's "companies"
+            // cap — it is the manual/sales-led onboarding path. Only the
+            // public self-signup flow (CompanySignupController) enforces
+            // that limit. The new owner still needs a subscription so
+            // later plan-limit checks (e.g. adding more users) work.
+            $company->update(['owner_id' => $admin->id]);
+            $this->subscriptionService->subscribeToFreePlan($admin);
         });
 
         return redirect()

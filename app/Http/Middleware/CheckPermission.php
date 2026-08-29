@@ -16,7 +16,10 @@ class CheckPermission
         string $permission
     ): Response {
         if (! $request->user()?->can($permission)) {
-            abort(403, 'You do not have permission to perform this action.');
+            abort(
+                403,
+                'You do not have permission to perform this action.'
+            );
         }
 
         return $next($request);

@@ -6,18 +6,19 @@ namespace App\Models;
 
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Foundation\Auth\User as Authenticatable;
-use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Notifications\Notifiable;
 use Spatie\Permission\Traits\HasRoles;
 
 /**
  * Nexton Accounts User Model
  *
  * NOTE: The legacy `role` string column (Admin / Manager / Accountant) is
- * kept for backward compatibility. From now on the source of truth for
- * access control is the spatie `roles` / `permissions` system populated
+ * kept for backward compatibility. From now on, the source of truth for
+ * access control is the Spatie `roles` / `permissions` system populated
  * by RoleAndPermissionSeeder.
  */
 class User extends Authenticatable
@@ -73,48 +74,52 @@ class User extends Authenticatable
 
     /*
     |--------------------------------------------------------------------------
-    | Legacy role helpers (bridge to the new permission system)
+    | Legacy Role Helpers
     |--------------------------------------------------------------------------
     */
 
     /**
-     * Sync the spatie role from the legacy `role` string column.
+     * Sync the Spatie role from the legacy `role` string column.
      * Call this after creating/updating a user so old code paths keep working.
      */
-    
     public function syncLegacyRole(): void
-{
-    // Never downgrade or modify an explicitly assigned Spatie role.
-    if ($this->hasRole('super-admin')) {
-        return;
+    {
+        // Never downgrade or modify an explicitly assigned Spatie role.
+        if ($this->hasRole('super-admin')) {
+            return;
+        }
+
+        // Do not overwrite manually assigned roles.
+        if ($this->roles()->exists()) {
+            return;
+        }
+
+        $legacyMap = [
+            'Admin' => 'admin',
+            'Manager' => 'accountant',
+            'Accountant' => 'accountant',
+        ];
+
+        $newRole = $legacyMap[$this->role] ?? null;
+
+        if ($newRole !== null) {
+            $this->assignRole($newRole);
+        }
     }
 
-    // Do not overwrite manually assigned roles.
-    if ($this->roles()->exists()) {
-        return;
-    }
-
-    $legacyMap = [
-        'Admin'      => 'admin',
-        'Manager'      => 'accountant',
-        'Accountant' => 'accountant',
-    ];
-
-    $newRole = $legacyMap[$this->role] ?? null;
-
-    if ($newRole !== null) {
-        $this->assignRole($newRole);
-    }
-}
-
+    /**
+     * Determine whether the user is an administrator.
+     */
     public function isAdministrator(): bool
     {
         return $this->hasRole('admin');
     }
 
     /**
-     * Super Admin has no company_id (global scope) and the 'super-admin' role.
-     * Everyone else (Admin included) is locked to exactly one company.
+     * Determine whether the user is a Super Admin.
+     *
+     * Super Admin has no company_id and has the `super-admin` role.
+     * Everyone else, including Admin, is locked to exactly one company.
      */
     public function isSuperAdmin(): bool
     {
@@ -122,33 +127,73 @@ class User extends Authenticatable
     }
 
     /**
-     * True if this user may view/edit the given company.
-     * Super Admin can access every company; everyone else only their own.
+     * Determine whether the user may access the given company.
+     *
+     * Super Admin can access every company.
+     * Other users can access only their own company.
      */
     public function canAccessCompany(int $companyId): bool
     {
         return $this->isSuperAdmin() || $this->company_id === $companyId;
     }
 
+    /**
+     * Get the company assigned to the user.
+     */
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);
     }
 
+    /**
+     * Get all subscriptions this user has ever had.
+     *
+     * Full history is retained, including cancelled and expired rows.
+     */
+    public function subscriptions(): HasMany
+    {
+        return $this->hasMany(Subscription::class);
+    }
+
+    /**
+     * Get the user's current active subscription, if any.
+     */
+    public function activeSubscription(): HasOne
+    {
+        return $this->hasOne(Subscription::class)
+            ->where('status', Subscription::STATUS_ACTIVE)
+            ->latestOfMany();
+    }
+
+    /**
+     * Get companies this user owns.
+     */
+    public function ownedCompanies(): HasMany
+    {
+        return $this->hasMany(Company::class, 'owner_id');
+    }
+
+    /**
+     * Get transactions created by this user.
+     */
     public function createdTransactions(): HasMany
     {
         return $this->hasMany(Transaction::class, 'created_by');
     }
 
+    /**
+     * Get transactions posted by this user.
+     */
     public function postedTransactions(): HasMany
     {
         return $this->hasMany(Transaction::class, 'posted_by');
     }
 
+    /**
+     * Get transactions cancelled by this user.
+     */
     public function cancelledTransactions(): HasMany
     {
         return $this->hasMany(Transaction::class, 'cancelled_by');
     }
 }
-
-

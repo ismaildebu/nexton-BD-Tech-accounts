@@ -2,13 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Account;
 use App\Models\Invoice;
-use App\Models\Expense;
 use App\Models\BankAccount;
 use App\Models\LedgerEntry;
-use App\Models\Account;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
@@ -18,56 +16,64 @@ class DashboardController extends Controller
         $company_id = session('company_id');
 
         // ---------------------------------------------------------------
-// ASSETS, LIABILITIES, EQUITY
-// ---------------------------------------------------------------
-$assetAccountIds = Account::where('company_id', $company_id)
-    ->where('account_type', 'Asset')->pluck('id');
+        // Ledger Entry Constraint — company + non-reversed entries only.
+        // এটাই সেই fix: BalanceSheetController-এর মতো is_reversed = false
+        // ফিল্টার এখানেও প্রয়োগ করা হলো, যাতে cancelled ভাউচারের entry
+        // dashboard-এর balance-এ ভুলভাবে যোগ না হয়।
+        // ---------------------------------------------------------------
+        $entryConstraint = function ($query) use ($company_id) {
+            $query->where('ledger_entries.company_id', $company_id)
+                  ->where('ledger_entries.is_reversed', false);
+        };
 
-$liabilityAccountIds = Account::where('company_id', $company_id)
-    ->where('account_type', 'Liability')->pluck('id');
+        // ---------------------------------------------------------------
+        // Balance Calculator — Account::getCurrentBalanceAttribute()-এর
+        // বদলে এখানে ব্যবহার করা হচ্ছে, কারণ eager-loaded ledgerEntries
+        // কালেকশনের উপর কাজ করে, প্রতি account-এ আলাদা query চালায় না।
+        // ---------------------------------------------------------------
+        $calculateBalance = static function (Account $account): float {
+            $debit   = (float) $account->ledgerEntries->sum('debit_amount');
+            $credit  = (float) $account->ledgerEntries->sum('credit_amount');
+            $opening = (float) ($account->opening_balance ?? 0);
 
-$equityAccountIds = Account::where('company_id', $company_id)
-    ->where('account_type', 'Equity')->pluck('id');
+            return $account->isDebitNormal()
+                ? $opening + ($debit - $credit)
+                : $opening + ($credit - $debit);
+        };
 
-//  (Asset)
-$totalAssets = Account::where('company_id', $company_id)
-    ->where('account_type', 'Asset')
-    ->get()
-    ->sum('current_balance');
+        // ---------------------------------------------------------------
+        // সব account একবারে লোড, ledgerEntries eager-load সহ।
+        // আগে যেখানে ৭ সেট account-এর জন্য আলাদা আলাদা query +
+        // প্রতি account-এ ২টা করে accessor query চলত (১০০+ query),
+        // এখন মোট মাত্র ২টা query (accounts + ledger entries)।
+        // ---------------------------------------------------------------
+        $allAccounts = Account::query()
+            ->with(['ledgerEntries' => $entryConstraint])
+            ->where('company_id', $company_id)
+            ->get();
 
-// (Liability)
-$totalLiabilities = Account::where('company_id', $company_id)
-    ->where('account_type', 'Liability')
-    ->get()
-    ->sum('current_balance');
+        $assetAccounts     = $allAccounts->where('account_type', 'Asset');
+        $liabilityAccounts = $allAccounts->where('account_type', 'Liability');
+        $equityAccounts    = $allAccounts->where('account_type', 'Equity');
+        $incomeAccounts    = $allAccounts->where('account_type', 'Income');
+        $expenseAccounts   = $allAccounts->where('account_type', 'Expense');
 
-// (Equity)
-$totalEquity = Account::where('company_id', $company_id)
-    ->where('account_type', 'Equity')
-    ->get()
-    ->sum('current_balance');
+        $totalAssets      = $assetAccounts->sum($calculateBalance);
+        $totalLiabilities = $liabilityAccounts->sum($calculateBalance);
+        $totalEquity      = $equityAccounts->sum($calculateBalance);
 
-// (Receivable - Customer nature accounts)
-$totalReceivable = Account::where('company_id', $company_id)
-    ->where('account_type', 'Asset')
-    ->where('nature', 'Customer')
-    ->get()
-    ->sum('current_balance');
+        $totalReceivable = $assetAccounts
+            ->where('nature', 'Customer')
+            ->sum($calculateBalance);
 
-//  (Payable - Supplier nature accounts)
-$totalPayable = Account::where('company_id', $company_id)
-    ->where('account_type', 'Liability')
-    ->where('nature', 'Supplier')
-    ->get()
-    ->sum('current_balance');
-        
-        
+        $totalPayable = $liabilityAccounts
+            ->where('nature', 'Supplier')
+            ->sum($calculateBalance);
+
         // ---------------------------------------------------------------
         // 1. REVENUE — Income type accounts থেকে ledger entries
         // ---------------------------------------------------------------
-        $incomeAccountIds = Account::where('company_id', $company_id)
-            ->where('account_type', 'Income')
-            ->pluck('id');
+        $incomeAccountIds = $incomeAccounts->pluck('id');
 
         $totalRevenue = LedgerEntry::where('company_id', $company_id)
             ->whereIn('account_id', $incomeAccountIds)
@@ -90,9 +96,7 @@ $totalPayable = Account::where('company_id', $company_id)
         // ---------------------------------------------------------------
         // 2. EXPENSES — Expense type accounts থেকে ledger entries
         // ---------------------------------------------------------------
-        $expenseAccountIds = Account::where('company_id', $company_id)
-            ->where('account_type', 'Expense')
-            ->pluck('id');
+        $expenseAccountIds = $expenseAccounts->pluck('id');
 
         $totalExpenses = LedgerEntry::where('company_id', $company_id)
             ->whereIn('account_id', $expenseAccountIds)
@@ -174,33 +178,26 @@ $totalPayable = Account::where('company_id', $company_id)
             $cashFlowOutflow[] = $expenseTrend[$m - 1] ?? 0;
         }
 
-// ---------------------------------------------------------------
-// CASH & BANK BALANCE
-// ---------------------------------------------------------------
-$cashAccounts = Account::where('company_id', $company_id)
-    ->where('account_type', 'Asset')
-    ->where('nature', 'Cash')
-    ->get();
+        // ---------------------------------------------------------------
+        // CASH & BANK BALANCE (chart-of-accounts side, ledger-based)
+        // ---------------------------------------------------------------
+        $cashAccounts       = $assetAccounts->where('nature', 'Cash');
+        $bankAccountsLedger = $assetAccounts->where('nature', 'Bank');
 
-$bankAccountsLedger = Account::where('company_id', $company_id)
-    ->where('account_type', 'Asset')
-    ->where('nature', 'Bank')
-    ->get();
+        $totalCash = $cashAccounts->sum($calculateBalance);
+        $totalBank = $bankAccountsLedger->sum($calculateBalance);
 
-$totalCash = $cashAccounts->sum('current_balance');
-$totalBank = $bankAccountsLedger->sum('current_balance');
-
-$cashBankDetails = $cashAccounts->merge($bankAccountsLedger)->map(function($account) {
-    return (object)[
-        'name'    => $account->account_name,
-        'nature'  => $account->nature,
-        'balance' => $account->current_balance,
-    ];
-});
-
+        $cashBankDetails = $cashAccounts->merge($bankAccountsLedger)
+            ->map(fn(Account $account) => (object)[
+                'name'    => $account->account_name,
+                'nature'  => $account->nature,
+                'balance' => $calculateBalance($account),
+            ])
+            ->values();
 
         // ---------------------------------------------------------------
-        // 8. BANK ACCOUNTS
+        // 8. BANK ACCOUNTS (BankAccount module — এটা আলাদা টেবিল,
+        //    chart-of-accounts ledger-এর সাথে সরাসরি সংযুক্ত নয়)
         // ---------------------------------------------------------------
         $bankAccounts = BankAccount::where('company_id', $company_id)
             ->where('is_active', true)

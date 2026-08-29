@@ -14,11 +14,13 @@ class SalesOrder extends Model
         'company_id', 'customer_id', 'so_number',
         'order_date', 'delivery_date', 'status',
         'subtotal', 'tax', 'discount', 'total', 'notes',
+        'is_accounted',
     ];
 
     protected $casts = [
         'order_date'    => 'date',
         'delivery_date' => 'date',
+        'is_accounted'  => 'boolean',
     ];
 
     public function company()

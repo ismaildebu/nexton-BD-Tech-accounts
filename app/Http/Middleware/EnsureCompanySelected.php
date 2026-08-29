@@ -10,20 +10,27 @@ use Symfony\Component\HttpFoundation\Response;
 
 class EnsureCompanySelected
 {
-    public function handle(Request $request, Closure $next): Response
-    {
+    public function handle(
+        Request $request,
+        Closure $next
+    ): Response {
         $user = $request->user();
 
-        // A company-scoped user (anyone with a company_id, i.e. not Super
-        // Admin) never needs to pick — silently lock the session to their
-        // own company so they can't end up inside someone else's data.
+        /*
+         * Company-scoped users are always locked to their own company.
+         */
         if ($user !== null && $user->company_id !== null) {
-            if (session('company_id') !== $user->company_id) {
-                session(['company_id' => $user->company_id]);
+            if ((int) session('company_id') !== (int) $user->company_id) {
+                session([
+                    'company_id' => $user->company_id,
+                ]);
             }
             return $next($request);
         }
 
+        /*
+         * Super Admin requires an active company context.
+         */
         if (! session()->has('company_id')) {
             if ($request->expectsJson()) {
                 return response()->json([

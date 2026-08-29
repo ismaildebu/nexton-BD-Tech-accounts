@@ -2,15 +2,24 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\Vendor;
+use App\Services\PlanLimitService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class PurchaseOrderController extends Controller
 {
+    use EnforcesPlanLimits;
+
+    public function __construct(
+        private readonly PlanLimitService $planLimitService,
+    ) {
+    }
+
     public function index()
     {
         $company_id = session('company_id');
@@ -48,6 +57,16 @@ class PurchaseOrderController extends Controller
             'items.*.quantity'   => 'required|numeric|min:0.01',
             'items.*.unit_price' => 'required|numeric|min:0',
         ]);
+
+        $this->enforcePlanLimit(
+            $this->planLimitService,
+            $company_id,
+            'purchase_orders_monthly',
+            PurchaseOrder::where('company_id', $company_id)
+                ->whereMonth('created_at', now()->month)
+                ->whereYear('created_at', now()->year)
+                ->count(),
+        );
 
         // Calculate totals
         $subtotal = 0;

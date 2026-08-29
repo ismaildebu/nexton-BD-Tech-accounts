@@ -4,14 +4,23 @@ namespace App\Http\Controllers;
 
 use App\Exceptions\AccountCodeRangeExceededException;
 use App\Exceptions\CannotDeleteAccountException;
+use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Models\Account;
 use App\Models\Company;
+use App\Services\PlanLimitService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class AccountController extends Controller
 {
+    use EnforcesPlanLimits;
+
+    public function __construct(
+        private readonly PlanLimitService $planLimitService,
+    ) {
+    }
+
     /**
      * Display accounts list with search and filters
      */
@@ -97,6 +106,13 @@ class AccountController extends Controller
         $companyId = $requestedCompanyId;
         $accountType = $request->account_type;
         $level = 1;
+
+        $this->enforcePlanLimit(
+            $this->planLimitService,
+            $companyId,
+            'accounts',
+            Account::where('company_id', $companyId)->count(),
+        );
 
         if ($request->filled('parent_id')) {
             $parent = Account::forCompany($companyId)->find($request->parent_id);

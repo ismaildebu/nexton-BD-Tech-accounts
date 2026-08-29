@@ -2,16 +2,25 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Models\Product;
 use App\Models\Warehouse;
 use App\Models\ProductStock;
 use App\Models\StockMovement;
+use App\Services\PlanLimitService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class InventoryController extends Controller
 {
+    use EnforcesPlanLimits;
+
+    public function __construct(
+        private readonly PlanLimitService $planLimitService,
+    ) {
+    }
+
     // =================== PRODUCTS ===================
 
     public function products()
@@ -41,6 +50,13 @@ class InventoryController extends Controller
             'sale_price'     => 'required|numeric|min:0',
             'reorder_level'  => 'required|integer|min:0',
         ]);
+
+        $this->enforcePlanLimit(
+            $this->planLimitService,
+            session('company_id'),
+            'products',
+            Product::where('company_id', session('company_id'))->count(),
+        );
 
         Product::create([
             'company_id'     => session('company_id'),
