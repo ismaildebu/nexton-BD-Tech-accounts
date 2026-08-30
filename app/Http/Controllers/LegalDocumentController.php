@@ -282,25 +282,31 @@ $query->orderBy($sortBy, $sortOrder);
         ]);
     }
 
-        public function preview(LegalDocument $legalDocument)
+        /**
+     * Preview a legal document inline in the browser.
+     */
+    public function preview(LegalDocument $legalDocument)
     {
-        if (!Storage::disk('legal_documents')->exists($legalDocument->file_path)) {
-            abort(404, 'Document file not found.');
-        }
+        $disk = Storage::disk('legal_documents');
 
-        $mimeType = Storage::disk('legal_documents')->mimeType(
-            $legalDocument->file_path
+        abort_unless(
+            $disk->exists($legalDocument->file_path),
+            404,
+            'Document file not found.'
         );
 
+        $mimeType = $disk->mimeType($legalDocument->file_path);
+
         return response()->file(
-            Storage::disk('legal_documents')->path($legalDocument->file_path),
+            $disk->path($legalDocument->file_path),
             [
                 'Content-Type' => $mimeType,
                 'Content-Disposition' => 'inline; filename="' .
-                    addslashes($legalDocument->file_name) . '"',
+                    addslashes($legalDocument->file_name) .
+                    '"',
             ]
         );
     }
-
+    
 
 }

@@ -796,12 +796,29 @@ class VoucherController extends Controller
     // Company Isolation Guard
     // ---------------------------------------------------------------
 
-    private function authorizeCompanyAccess(
-        Transaction $transaction
-    ): void {
+    
+    /**
+     * Ensure the authenticated user can access the transaction's company.
+     */
+    private function authorizeCompanyAccess(Transaction $transaction): void
+    {
+        $user = auth()->user();
+
+        abort_unless(
+            $user !== null,
+            403,
+            'Unauthenticated.'
+        );
+
+        abort_unless(
+            $user->canAccessCompany((int) $transaction->company_id),
+            403,
+            'You are not authorized to access this voucher.'
+        );
+
         if (
-            (int) $transaction->company_id !==
-            (int) session('company_id')
+            ! $user->isSuperAdmin()
+            && (int) session('company_id') !== (int) $transaction->company_id
         ) {
             abort(
                 403,
@@ -809,4 +826,5 @@ class VoucherController extends Controller
             );
         }
     }
+
 }

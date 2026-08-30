@@ -16,31 +16,33 @@ class EnsureCompanySelected
     ): Response {
         $user = $request->user();
 
+        if ($user === null) {
+            return $next($request);
+        }
+
         /*
          * Company-scoped users are always locked to their own company.
          */
-        if ($user !== null && $user->company_id !== null) {
+        if ($user->company_id !== null) {
             if ((int) session('company_id') !== (int) $user->company_id) {
                 session([
                     'company_id' => $user->company_id,
                 ]);
             }
+
             return $next($request);
         }
 
         /*
          * Super Admin requires an active company context.
          */
-        if (! session()->has('company_id')) {
-            if ($request->expectsJson()) {
-                return response()->json([
-                    'message' => 'No company selected.',
-                ], 403);
-            }
-
+        if ($user->isSuperAdmin() && ! session()->has('company_id')) {
             return redirect()
                 ->route('companies.index')
-                ->with('error', 'Please select a company to continue.');
+                ->with(
+                    'error',
+                    'Please select a company to continue.'
+                );
         }
 
         return $next($request);

@@ -15,48 +15,59 @@ class SetActiveCompany
         Request $request,
         Closure $next
     ): Response {
-        if (! $request->user()) {
+        $user = $request->user();
+
+        if ($user === null) {
             return $next($request);
         }
 
-        $user = $request->user();
-
         /*
-         * Company-scoped user:
-         * Always force their own company.
+         * Company-scoped users are always locked to their own company.
          */
         if ($user->company_id !== null) {
             $company = $user->company;
 
-            if ($company !== null) {
-                session([
-                    'company_id' => $company->id,
-                    'company_name' => $company->company_name,
-                ]);
-            }
+            abort_unless(
+                $company !== null && $company->status,
+                403,
+                'Your company is not available.'
+            );
+
+            session([
+                'company_id' => $company->id,
+                'company_name' => $company->company_name,
+            ]);
 
             return $next($request);
         }
 
         /*
-         * Super Admin:
-         * Keep the explicitly selected company.
-         *
-         * If no company has been selected yet, select the first
-         * available company as the initial context.
+         * Super Admin may work with an explicitly selected company.
          */
-        if (! session()->has('company_id')) {
-            $company = Company::query()
-                ->where('status', true)
-                ->orderBy('id')
-                ->first();
+        if ($user->isSuperAdmin()) {
+            $companyId = session('company_id');
 
-            if ($company !== null) {
-                session([
-                    'company_id' => $company->id,
-                    'company_name' => $company->company_name,
-                ]);
+            if ($companyId !== null) {
+                $company = Company::query()
+                    ->whereKey((int) $companyId)
+                    ->where('status', true)
+                    ->first();
+
+                if ($company === null) {
+                    session()->forget([
+                        'company_id',
+                        'company_name',
+                        'financial_year_id',
+                    ]);
+                } else {
+                    session([
+                        'company_id' => $company->id,
+                        'company_name' => $company->company_name,
+                    ]);
+                }
             }
+
+            return $next($request);
         }
 
         return $next($request);

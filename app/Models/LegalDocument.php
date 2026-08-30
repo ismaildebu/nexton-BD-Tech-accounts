@@ -254,14 +254,8 @@ class LegalDocument extends Model
         return $this->status === 'renewed';
     }
 
-    /**
-     * Check if document status is cancelled.
-     */
-    public function isCancelled(): bool
-    {
-        return $this->status === 'cancelled';
-    }
-
+    
+    
     /**
      * Check if document status is archived.
      */

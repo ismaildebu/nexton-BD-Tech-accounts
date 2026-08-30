@@ -4,33 +4,42 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Models\Company;
 use App\Models\FinancialYear;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 
 class CompanySwitchController extends Controller
 {
-    public function switch(Request $request)
+    public function switch(Request $request): RedirectResponse
     {
-        $request->validate([
-            'company_id' => 'required|exists:companies,id',
+        $validated = $request->validate([
+            'company_id' => [
+                'required',
+                'integer',
+                'exists:companies,id',
+            ],
         ]);
 
-        $companyId = (int) $request->company_id;
+        $company = Company::query()
+            ->whereKey((int) $validated['company_id'])
+            ->where('status', true)
+            ->firstOrFail();
+
         $user = $request->user();
 
-        // Only Super Admin may switch into an arbitrary company. Everyone
-        // else is locked to their own company_id.
-        if (! $user->isSuperAdmin() && $companyId !== $user->company_id) {
+        if (! $user->canAccessCompany((int) $company->id)) {
             abort(403, 'You do not have access to this company.');
         }
 
-        $financialYear = FinancialYear::where('company_id', $companyId)
-            ->where('is_active', true)
-            ->latest()
+        $financialYear = FinancialYear::query()
+            ->where('company_id', $company->id)
+            ->orderByDesc('start_date')
             ->first();
 
         session([
-            'company_id'        => $companyId,
+            'company_id' => $company->id,
+            'company_name' => $company->company_name,
             'financial_year_id' => $financialYear?->id,
         ]);
 

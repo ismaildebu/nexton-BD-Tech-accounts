@@ -173,6 +173,8 @@ class User extends Authenticatable
         return $this->hasMany(Company::class, 'owner_id');
     }
 
+
+    
     /**
      * Get transactions created by this user.
      */
@@ -182,12 +184,12 @@ class User extends Authenticatable
     }
 
     /**
-     * Get transactions posted by this user.
-     */
-    public function postedTransactions(): HasMany
-    {
-        return $this->hasMany(Transaction::class, 'posted_by');
-    }
+         * Get transactions posted by this user.
+         */
+        public function postedTransactions(): HasMany
+        {
+            return $this->hasMany(Transaction::class, 'posted_by');
+        }
 
     /**
      * Get transactions cancelled by this user.
