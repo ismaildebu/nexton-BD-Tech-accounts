@@ -30,6 +30,7 @@ class MediaReturn extends Model
         'total_return_quantity',
         'notes',
         'created_by',
+        'transaction_id',
     ];
 
     protected $casts = [
@@ -61,6 +62,11 @@ class MediaReturn extends Model
     public function items(): HasMany
     {
         return $this->hasMany(MediaReturnItem::class);
+    }
+
+    public function transaction(): BelongsTo
+    {
+        return $this->belongsTo(Transaction::class);
     }
 
     public function creator(): BelongsTo

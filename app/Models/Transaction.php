@@ -62,6 +62,8 @@ class Transaction extends Model
 
         'voucher_number',
         'voucher_date',
+        'reference_type',
+        'reference_id',
         'reference_number',
 
         'total_debit',

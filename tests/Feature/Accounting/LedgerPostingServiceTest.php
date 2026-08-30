@@ -426,11 +426,25 @@ class LedgerPostingServiceTest extends TestCase
     | Transaction Factory Helper
     |--------------------------------------------------------------------------
     */
-
     private function makeTransaction(
         string $status = Transaction::STATUS_APPROVED,
-        string $voucherNumber = 'JV-00001'
-    ): Transaction {
+        ?string $voucherNumber = null
+            ): Transaction {
+        // Generate unique voucher number if not provided
+        if ($voucherNumber === null) {
+            $count = Transaction::query()
+                ->where('company_id', $this->company->id)
+                ->where('financial_year_id', $this->financialYear->id)
+                ->count();
+            
+            $voucherNumber = 'JV-' . str_pad(
+                (string) ($count + 1),
+                5,
+                '0',
+                STR_PAD_LEFT
+            );
+        }
+
         $transaction = Transaction::create([
             /*
             |--------------------------------------------------------------------------
@@ -444,7 +458,7 @@ class LedgerPostingServiceTest extends TestCase
 
             'voucher_type_id' => $this->voucherType->id,
 
-            'voucher_number' => $voucherNumber,
+            'voucher_number' => $voucherNumber,  // ← Now unique!
 
             'voucher_date' => '2026-08-24',
 
@@ -457,18 +471,11 @@ class LedgerPostingServiceTest extends TestCase
             /*
             |--------------------------------------------------------------------------
             | Legacy Transaction Fields
-            |
-            | Required by the original transactions table migration.
             |--------------------------------------------------------------------------
             */
 
             'transaction_date' => '2026-08-24',
 
-            /*
-            | voucher_no has a UNIQUE constraint.
-            | Keep it different from voucher_number to avoid depending
-            | on the newer ERP voucher_number column.
-            */
             'voucher_no' => 'LEGACY-' . $voucherNumber,
 
             'transaction_type' => 'Journal',
@@ -524,4 +531,5 @@ class LedgerPostingServiceTest extends TestCase
 
         return $transaction->fresh();
     }
+    
 }

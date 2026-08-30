@@ -32,6 +32,8 @@ class LedgerEntry extends Model
         'credit_amount',
         'is_reversed',
         'description',
+        'reference_type',
+        'reference_id',
     ];
 
     protected $casts = [

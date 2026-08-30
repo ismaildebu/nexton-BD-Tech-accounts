@@ -52,7 +52,8 @@ it('stores a return via HTTP and stock increases', function () {
         'publication_id' => $pub->id,
         'return_date'    => '2026-09-02',
         'items'          => [
-            ['media_party_id' => $party->id, 'paid_return_quantity' => 20, 'free_return_quantity' => 5],
+            // Standalone return: only free returns (no distribution needed)
+            ['media_party_id' => $party->id, 'paid_return_quantity' => 0, 'free_return_quantity' => 25],
         ],
     ])->assertRedirect();
 
@@ -92,7 +93,7 @@ it('rejects return that exceeds distribution net_quantity via HTTP', function ()
     $pub   = makePub(1000);
     $party = makeParty();
 
-    $dist = (new DistributionService(new FreePercentageResolver(), $this->stock))
+    $dist = app(DistributionService::class)
         ->create($pub, '2026-09-01', $this->admin->company_id, $this->admin->id, [
             ['media_party_id' => $party->id, 'paid_quantity' => 50, 'rate' => 5],
         ]);
@@ -116,7 +117,7 @@ it('cannot return against another company distribution (company isolation)', fun
     $partyOther = makeParty();
     $otherUser  = \App\Models\User::factory()->create(['company_id' => $otherCompany->id]);
 
-    $distOther = (new DistributionService(new FreePercentageResolver(), $this->stock))
+    $distOther = app(DistributionService::class)
         ->create($pubOther, '2026-09-01', $otherCompany->id, $otherUser->id, [
             ['media_party_id' => $partyOther->id, 'paid_quantity' => 50, 'rate' => 5],
         ]);

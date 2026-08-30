@@ -102,11 +102,18 @@ class VoucherType extends Model
 
     public function generateNextVoucherNumber(): string
     {
-        $this->increment('last_number');
-        $this->refresh();
+        $locked = self::query()
+            ->whereKey($this->getKey())
+            ->lockForUpdate()
+            ->firstOrFail();
 
-        $prefix = $this->prefix ?? strtoupper(substr($this->code, 0, 3));
-        $number = str_pad((string) $this->last_number, 6, '0', STR_PAD_LEFT);
+        $locked->increment('last_number');
+        $locked->refresh();
+
+        $prefix = $locked->prefix ?? strtoupper(substr($locked->code, 0, 3));
+        $number = str_pad((string) $locked->last_number, 6, '0', STR_PAD_LEFT);
+
+        $this->setAttribute('last_number', $locked->last_number);
 
         return "{$prefix}-{$number}";
     }

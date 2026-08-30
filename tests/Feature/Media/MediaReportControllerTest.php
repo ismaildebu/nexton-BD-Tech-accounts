@@ -17,15 +17,15 @@ use Tests\Feature\Media\Concerns\CreatesMediaCompany;
 
 uses(CreatesMediaCompany::class);
 
-beforeEach(function () {
-    $this->company = $this->makeMediaCompany();
-    $this->admin   = $this->makeMediaAdmin();
-    session(['company_id' => $this->admin->company_id]);
+        beforeEach(function () {
+            $this->company = $this->makeMediaCompany();
+            $this->admin   = $this->makeMediaAdmin();
+            session(['company_id' => $this->admin->company_id]);
 
-    $this->stock       = new NewspaperStockService();
-    $this->distService = new DistributionService(new FreePercentageResolver(), $this->stock);
-    $this->retService  = new ReturnService($this->stock);
-});
+            $this->stock       = new NewspaperStockService();
+            $this->distService = app(DistributionService::class);
+            $this->retService  = app(ReturnService::class);
+        });
 
 function rPub(int $printed = 1000): Publication
 {
@@ -158,17 +158,18 @@ it('return summary returns 200', function () {
         ->assertOk();
 });
 
+
 it('return summary shows confirmed returns', function () {
     $pub   = rPub(1000);
     $party = rMParty();
 
-    $this->distService->create($pub, '2026-09-01', $this->admin->company_id, $this->admin->id, [
+    $distribution = $this->distService->create($pub, '2026-09-01', $this->admin->company_id, $this->admin->id, [
         ['media_party_id' => $party->id, 'paid_quantity' => 200, 'rate' => 5],
     ]);
 
     $this->retService->create($pub, '2026-09-02', $this->admin->company_id, $this->admin->id, [
         ['media_party_id' => $party->id, 'paid_return_quantity' => 40, 'free_return_quantity' => 0],
-    ]);
+    ], $distribution->id);
 
     $response = $this->actingAs($this->admin)->get(route('media.reports.return-summary', [
         'from_date' => '2026-09-01',

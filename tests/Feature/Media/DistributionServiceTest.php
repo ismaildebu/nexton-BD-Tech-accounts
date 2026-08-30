@@ -20,7 +20,7 @@ beforeEach(function () {
     $this->user = \App\Models\User::factory()->create(['company_id' => $this->company->id]);
 
     $this->stock = new NewspaperStockService();
-    $this->service = new DistributionService(new FreePercentageResolver(), $this->stock);
+    $this->service = app(DistributionService::class);
 });
 
 function makeDistributionParty(array $attrs = []): MediaParty

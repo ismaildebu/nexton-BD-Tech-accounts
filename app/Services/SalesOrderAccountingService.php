@@ -4,11 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Exceptions\VoucherValidationException;
 use App\Models\Account;
 use App\Models\Customer;
 use App\Models\FinancialYear;
-use App\Models\LedgerEntry;
 use App\Models\SalesOrder;
 use App\Models\Transaction;
 use App\Models\TransactionDetail;
@@ -47,6 +45,8 @@ final class SalesOrderAccountingService
 {
     private const SALES_VOUCHER_CODE = 'SV';
 
+    private LedgerPostingService $ledgerService;
+
     public function __construct(
         protected VoucherService $voucherService,
         ?LedgerPostingService $ledgerService = null,
@@ -54,8 +54,6 @@ final class SalesOrderAccountingService
         $this->ledgerService = $ledgerService
             ?? app(LedgerPostingService::class);
     }
-
-    private LedgerPostingService $ledgerService;
 
     /**
      * Create and post accounting transaction when a Sales Order is confirmed.
@@ -100,29 +98,23 @@ final class SalesOrderAccountingService
                 $lockedSalesOrder
             );
 
-            /*
-             * Find an existing accounting transaction belonging to the
-             * same company and Sales Order.
-             *
-             * Sales vouchers are identified by code SV because the current
-             * voucher_types schema does not contain a slug column.
-             */
             $existingTransaction = Transaction::query()
-                ->where('company_id', $lockedSalesOrder->company_id)
+                ->where(
+                    'company_id',
+                    $lockedSalesOrder->company_id
+                )
+                ->where(
+                    'reference_type',
+                    'SalesOrder'
+                )
+                ->where(
+                    'reference_id',
+                    $lockedSalesOrder->id
+                )
                 ->where(
                     'reference_number',
                     $referenceNumber
                 )
-                ->whereHas('voucherType', function ($query): void {
-                    $query->where(
-                        'company_id',
-                        DB::raw('transactions.company_id')
-                    );
-                    $query->where(
-                        'code',
-                        self::SALES_VOUCHER_CODE
-                    );
-                })
                 ->lockForUpdate()
                 ->first();
 
@@ -141,7 +133,8 @@ final class SalesOrderAccountingService
 
             if (bccomp($totalAmount, '0.0000', 4) <= 0) {
                 throw new RuntimeException(
-                    "Cannot create accounting entry for SO #{$lockedSalesOrder->so_number}. "
+                    "Cannot create accounting entry for SO "
+                    . "#{$lockedSalesOrder->so_number}. "
                     . 'Total amount must be greater than zero.'
                 );
             }
@@ -169,33 +162,46 @@ final class SalesOrderAccountingService
 
             if ($userId === null) {
                 throw new RuntimeException(
-                    'Authenticated user is required to create Sales Order accounting entries.'
+                    'Authenticated user is required to create '
+                    . 'Sales Order accounting entries.'
                 );
             }
+            $transaction = Transaction::create([
+                'company_id'        => $lockedSalesOrder->company_id,
+                'financial_year_id' => $financialYearId,
+                'voucher_type_id'   => $voucherType->id,
+                'created_by'        => $userId,
 
-          $transaction = Transaction::create([
-    'company_id'        => $lockedSalesOrder->company_id,
-    'financial_year_id' => $financialYearId,
-    'voucher_type_id'   => $voucherType->id,
-    'created_by'        => $userId,
+                'account_id'        => $receivableAccount->id,
+                'transaction_type'  => 'Journal',
+                'amount'            => $totalAmount,
+                'transaction_date'  =>
+                    $lockedSalesOrder->order_date ?? $now,
 
-    'account_id'        => $receivableAccount->id,
-    'transaction_type'  => 'Sales',
-    'amount'            => $totalAmount,
-    'transaction_date'  => $lockedSalesOrder->order_date ?? $now,
-    'voucher_no'        => 'SO-' . $lockedSalesOrder->so_number,
-    'voucher_number'    => 'SO-' . $lockedSalesOrder->so_number,
-    'voucher_date'      => $lockedSalesOrder->order_date ?? $now,
-    'reference_number'  => $referenceNumber,
-    'narration'         => "Sales Order #{$lockedSalesOrder->so_number} confirmed",
-    'total_debit'       => $totalAmount,
-    'total_credit'      => $totalAmount,
-    'status'            => Transaction::STATUS_APPROVED,
-    'approved_by'       => $userId,
-    'approved_at'       => $now,
-    'approval_note'     => 'Automatically approved for Sales Order accounting.',
-]);
-            
+                'voucher_no'        =>
+                    'SO-' . $lockedSalesOrder->so_number,
+                'voucher_number'    =>
+                    'SO-' . $lockedSalesOrder->so_number,
+                'voucher_date'      =>
+                    $lockedSalesOrder->order_date ?? $now,
+
+                'reference_type'    => 'SalesOrder',
+                'reference_id'      => $lockedSalesOrder->id,
+                'reference_number'  => $referenceNumber,
+
+                'narration'         =>
+                    "Sales Order #{$lockedSalesOrder->so_number} confirmed",
+
+                'total_debit'       => $totalAmount,
+                'total_credit'      => $totalAmount,
+
+                'status'            => Transaction::STATUS_APPROVED,
+
+                'approved_by'       => $userId,
+                'approved_at'       => $now,
+                'approval_note'     =>
+                    'Automatically approved for Sales Order accounting.',
+            ]);
 
             TransactionDetail::insert([
                 [
@@ -203,7 +209,8 @@ final class SalesOrderAccountingService
                     'account_id'     => $receivableAccount->id,
                     'sort_order'     => 1,
                     'description'    =>
-                        "Accounts Receivable - SO #{$lockedSalesOrder->so_number}",
+                        "Accounts Receivable - SO "
+                        . "#{$lockedSalesOrder->so_number}",
                     'debit_amount'   => $totalAmount,
                     'credit_amount'  => '0.0000',
                     'created_at'     => $now,
@@ -214,7 +221,8 @@ final class SalesOrderAccountingService
                     'account_id'     => $revenueAccount->id,
                     'sort_order'     => 2,
                     'description'    =>
-                        "Sales Revenue - SO #{$lockedSalesOrder->so_number}",
+                        "Sales Revenue - SO "
+                        . "#{$lockedSalesOrder->so_number}",
                     'debit_amount'   => '0.0000',
                     'credit_amount'  => $totalAmount,
                     'created_at'     => $now,
@@ -231,9 +239,6 @@ final class SalesOrderAccountingService
                 );
             }
 
-            /*
-             * Only approved transactions may be posted.
-             */
             $this->ledgerService->post($transaction);
 
             $lockedSalesOrder->update([
@@ -245,20 +250,27 @@ final class SalesOrderAccountingService
     /**
      * Reverse Sales Order accounting when the Sales Order is cancelled.
      *
+     * The Sales Order is reloaded and locked inside the transaction.
+     * This avoids relying on stale state from the model instance supplied
+     * by the caller.
+     *
      * @throws Throwable
      */
     public function onCancelled(SalesOrder $salesOrder): void
     {
-        if (! $salesOrder->is_accounted) {
-            return;
-        }
-
         DB::transaction(function () use ($salesOrder): void {
             $lockedSalesOrder = SalesOrder::query()
                 ->where('company_id', $salesOrder->company_id)
                 ->lockForUpdate()
                 ->findOrFail($salesOrder->id);
 
+            /*
+             * Always check the fresh database state.
+             *
+             * The caller's SalesOrder model may be stale because
+             * onConfirmed() or another process may have changed
+             * is_accounted after the model was loaded.
+             */
             if (! $lockedSalesOrder->is_accounted) {
                 return;
             }
@@ -366,20 +378,17 @@ final class SalesOrderAccountingService
                 $salesOrder->company_id
             )
             ->where(
+                'reference_type',
+                'SalesOrder'
+            )
+            ->where(
+                'reference_id',
+                $salesOrder->id
+            )
+            ->where(
                 'reference_number',
                 $this->getReferenceNumber($salesOrder)
-            )
-            ->whereHas('voucherType', function ($query): void {
-                $query
-                    ->where(
-                        'company_id',
-                        DB::raw('transactions.company_id')
-                    )
-                    ->where(
-                        'code',
-                        self::SALES_VOUCHER_CODE
-                    );
-            });
+            );
 
         if ($lock) {
             $query->lockForUpdate();
@@ -396,10 +405,12 @@ final class SalesOrderAccountingService
     ): string {
         $total = '0.0000';
 
-        foreach ($salesOrder->items()->get([
-            'quantity',
-            'unit_price',
-        ]) as $item) {
+        foreach (
+            $salesOrder->items()->get([
+                'quantity',
+                'unit_price',
+            ]) as $item
+        ) {
             $quantity = (string) ($item->quantity ?? '0');
             $unitPrice = (string) ($item->unit_price ?? '0');
 
@@ -435,7 +446,8 @@ final class SalesOrderAccountingService
 
         if (! $customer) {
             throw new ModelNotFoundException(
-                "Customer #{$customerId} not found for company #{$companyId}."
+                "Customer #{$customerId} not found for company "
+                . "#{$companyId}."
             );
         }
 
@@ -519,7 +531,7 @@ final class SalesOrderAccountingService
 
         if (! $voucherType) {
             throw new RuntimeException(
-                "Sales voucher type (SV) is not configured "
+                'Sales voucher type (SV) is not configured '
                 . "for company #{$companyId}."
             );
         }
@@ -541,13 +553,17 @@ final class SalesOrderAccountingService
         if (! empty($salesOrder->financial_year_id)) {
             $financialYear = FinancialYear::query()
                 ->whereKey($salesOrder->financial_year_id)
-                ->where('company_id', $salesOrder->company_id)
+                ->where(
+                    'company_id',
+                    $salesOrder->company_id
+                )
                 ->first();
 
             if (! $financialYear) {
                 throw new RuntimeException(
                     "Financial year #{$salesOrder->financial_year_id} "
-                    . "does not belong to company #{$salesOrder->company_id}."
+                    . "does not belong to company "
+                    . "#{$salesOrder->company_id}."
                 );
             }
 
@@ -559,7 +575,10 @@ final class SalesOrderAccountingService
             : Carbon::now();
 
         $financialYear = FinancialYear::query()
-            ->where('company_id', $salesOrder->company_id)
+            ->where(
+                'company_id',
+                $salesOrder->company_id
+            )
             ->whereDate(
                 'start_date',
                 '<=',
@@ -570,13 +589,19 @@ final class SalesOrderAccountingService
                 '>=',
                 $date->toDateString()
             )
-            ->where('is_active', true)
-            ->where('is_closed', false)
+            ->where(
+                'is_active',
+                true
+            )
+            ->where(
+                'is_closed',
+                false
+            )
             ->first();
 
         if (! $financialYear) {
             throw new RuntimeException(
-                "Financial year could not be resolved for "
+                'Financial year could not be resolved for '
                 . "Sales Order #{$salesOrder->so_number}."
             );
         }

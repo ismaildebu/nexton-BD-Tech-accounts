@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -16,24 +17,22 @@ use Illuminate\Support\Facades\Schema;
  */
 return new class extends Migration
 {
-        public function up(): void
+    public function up(): void
     {
-        if (DB::getDriverName() !== 'mysql') {
-            return;
-        }
-
-        if (Schema::hasColumn('transactions', 'transaction_date')) {
-            DB::statement('ALTER TABLE `transactions` MODIFY `transaction_date` DATE NULL');
-        }
-        if (Schema::hasColumn('transactions', 'voucher_no')) {
-            DB::statement('ALTER TABLE `transactions` MODIFY `voucher_no` VARCHAR(255) NULL');
-        }
-        if (Schema::hasColumn('transactions', 'transaction_type')) {
-            DB::statement("ALTER TABLE `transactions` MODIFY `transaction_type` ENUM('Income','Expense','Journal') NULL");
-        }
-        if (Schema::hasColumn('transactions', 'amount')) {
-            DB::statement('ALTER TABLE `transactions` MODIFY `amount` DECIMAL(15,2) NULL');
-        }
+        Schema::table('transactions', function (Blueprint $table) {
+            if (Schema::hasColumn('transactions', 'transaction_date')) {
+                $table->date('transaction_date')->nullable()->change();
+            }
+            if (Schema::hasColumn('transactions', 'voucher_no')) {
+                $table->string('voucher_no')->nullable()->change();
+            }
+            if (Schema::hasColumn('transactions', 'transaction_type')) {
+                $table->enum('transaction_type', ['Income', 'Expense', 'Journal'])->nullable()->change();
+            }
+            if (Schema::hasColumn('transactions', 'amount')) {
+                $table->decimal('amount', 15, 2)->nullable()->change();
+            }
+        });
     }
 
     public function down(): void

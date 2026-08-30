@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Media\StoreMediaPartyRequest;
 use App\Http\Requests\Media\UpdateMediaPartyRequest;
 use App\Models\MediaParty;
+use App\Models\Account;
 use App\Models\Publication;
 use App\Services\Media\FreePercentageResolver;
 use Illuminate\Http\Request;
@@ -42,7 +43,9 @@ class MediaPartyController extends Controller
 
     public function create()
     {
-        return view('media.parties.create');
+        $accounts = Account::query()->where('company_id', session('company_id'))->where('is_active', true)->where('account_type', 'Asset')->where('nature', 'Customer')->orderBy('account_name')->get();
+
+        return view('media.parties.create', compact('accounts'));
     }
 
     public function store(StoreMediaPartyRequest $request)
@@ -81,7 +84,9 @@ class MediaPartyController extends Controller
     {
         $this->authorize('update', $mediaParty);
 
-        return view('media.parties.edit', ['party' => $mediaParty]);
+        $accounts = Account::query()->where('company_id', session('company_id'))->where('is_active', true)->where('account_type', 'Asset')->where('nature', 'Customer')->orderBy('account_name')->get();
+
+        return view('media.parties.edit', ['party' => $mediaParty, 'accounts' => $accounts]);
     }
 
     public function update(UpdateMediaPartyRequest $request, MediaParty $mediaParty)

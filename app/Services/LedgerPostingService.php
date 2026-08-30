@@ -16,26 +16,23 @@ final class LedgerPostingService
     /**
      * Post an approved transaction to the ledger.
      *
-     * ✅ FIX #3: Added pessimistic locking with lockForUpdate()
-     * Prevents race condition where two concurrent requests both
-     * read is_posted() = false and both proceed to create ledger entries.
+     * Pessimistic locking prevents concurrent requests from posting
+     * the same transaction more than once.
      *
      * @throws LedgerPostingException
      */
     public function post(Transaction $transaction): void
     {
         DB::transaction(function () use ($transaction): void {
-            // ========================================================
-            // Acquire lock to prevent concurrent posting
-            // ========================================================
             $transaction = Transaction::query()
-                ->where('id', $transaction->id)
+                ->whereKey($transaction->id)
                 ->lockForUpdate()
                 ->first();
 
             if ($transaction === null) {
                 throw new LedgerPostingException(
-                    "Transaction could not be locked for posting. It may have been deleted."
+                    'Transaction could not be locked for posting. '
+                    . 'It may have been deleted.'
                 );
             }
 
@@ -47,22 +44,27 @@ final class LedgerPostingService
 
             if ($transaction->isCancelled()) {
                 throw new LedgerPostingException(
-                    "Cancelled transaction #{$transaction->id} cannot be posted."
+                    "Cancelled transaction #{$transaction->id} "
+                    . 'cannot be posted.'
                 );
             }
 
             if (! $transaction->isApproved()) {
                 throw new LedgerPostingException(
-                    "Transaction #{$transaction->id} must be approved before it can be posted."
+                    "Transaction #{$transaction->id} must be approved "
+                    . 'before it can be posted.'
                 );
             }
 
-            // ========================================================
-            // ✅ BONUS FIX #4: Verify financial year is not closed
-            // ========================================================
-            if ($transaction->financialYear && $transaction->financialYear->is_closed) {
+            $transaction->loadMissing('financialYear');
+
+            if (
+                $transaction->financialYear
+                && $transaction->financialYear->is_closed
+            ) {
                 throw new LedgerPostingException(
-                    "Transaction #{$transaction->id} cannot be posted. The financial year is closed."
+                    "Transaction #{$transaction->id} cannot be posted. "
+                    . 'The financial year is closed.'
                 );
             }
 
@@ -70,15 +72,18 @@ final class LedgerPostingService
 
             if ($transaction->details->isEmpty()) {
                 throw new LedgerPostingException(
-                    "Transaction #{$transaction->id} has no detail lines to post."
+                    "Transaction #{$transaction->id} has no detail "
+                    . 'lines to post.'
                 );
             }
 
-            if (! $transaction->is_balanced) {
+            if (! $transaction->isBalanced) {
                 throw new LedgerPostingException(
                     "Transaction #{$transaction->id} is not balanced."
                 );
             }
+
+            $this->validateDetailLines($transaction);
 
             $this->preventDuplicateLedgerEntries($transaction);
 
@@ -93,30 +98,30 @@ final class LedgerPostingService
     }
 
     /**
-     * Cancel a transaction and reverse its active ledger entries.
+     * Cancel a posted transaction and create reversal ledger entries.
      *
-     * The original ledger entries are marked as reversed.
+     * Original posted entries are marked as reversed.
      * New reversal entries remain active.
-     *
-     * ✅ FIX #3: Added pessimistic locking with lockForUpdate()
-     * Prevents concurrent cancellation of the same transaction.
      *
      * @throws LedgerPostingException
      */
-    public function cancel(Transaction $transaction, string $reason): void
-    {
-        DB::transaction(function () use ($transaction, $reason): void {
-            // ========================================================
-            // Acquire lock to prevent concurrent cancellation
-            // ========================================================
+    public function cancel(
+        Transaction $transaction,
+        string $reason
+    ): void {
+        DB::transaction(function () use (
+            $transaction,
+            $reason
+        ): void {
             $transaction = Transaction::query()
-                ->where('id', $transaction->id)
+                ->whereKey($transaction->id)
                 ->lockForUpdate()
                 ->first();
 
             if ($transaction === null) {
                 throw new LedgerPostingException(
-                    "Transaction could not be locked for cancellation. It may have been deleted."
+                    'Transaction could not be locked for cancellation. '
+                    . 'It may have been deleted.'
                 );
             }
 
@@ -126,9 +131,16 @@ final class LedgerPostingService
                 );
             }
 
-            if ($transaction->isDraft()) {
+            if (! $transaction->isPosted()) {
                 throw new LedgerPostingException(
-                    "Draft transaction #{$transaction->id} cannot be cancelled via reversal. Use delete instead."
+                    "Only posted transaction #{$transaction->id} "
+                    . 'can be cancelled through ledger reversal.'
+                );
+            }
+
+            if (trim($reason) === '') {
+                throw new LedgerPostingException(
+                    'Cancellation reason is required.'
                 );
             }
 
@@ -143,19 +155,91 @@ final class LedgerPostingService
         });
     }
 
-    // ---------------------------------------------------------------
-    // Private: Ledger Generation
-    // ---------------------------------------------------------------
-
     /**
-     * Generate active ledger entries from transaction detail lines.
+     * Validate all transaction detail lines before posting.
      *
      * @throws LedgerPostingException
      */
-    private function generateLedgerEntries(Transaction $transaction): void
-    {
+    private function validateDetailLines(
+        Transaction $transaction
+    ): void {
+        foreach ($transaction->details as $detail) {
+            if (
+                (int) $detail->transaction_id
+                !== (int) $transaction->id
+            ) {
+                throw new LedgerPostingException(
+                    "Transaction detail #{$detail->id} does not belong "
+                    . "to transaction #{$transaction->id}."
+                );
+            }
+
+            if (
+                bccomp(
+                    (string) $detail->debit_amount,
+                    '0.0000',
+                    4
+                ) < 0
+            ) {
+                throw new LedgerPostingException(
+                    "Transaction detail #{$detail->id} has a negative "
+                    . 'debit amount.'
+                );
+            }
+
+            if (
+                bccomp(
+                    (string) $detail->credit_amount,
+                    '0.0000',
+                    4
+                ) < 0
+            ) {
+                throw new LedgerPostingException(
+                    "Transaction detail #{$detail->id} has a negative "
+                    . 'credit amount.'
+                );
+            }
+
+            $hasDebit = bccomp(
+                (string) $detail->debit_amount,
+                '0.0000',
+                4
+            ) > 0;
+
+            $hasCredit = bccomp(
+                (string) $detail->credit_amount,
+                '0.0000',
+                4
+            ) > 0;
+
+            if ($hasDebit && $hasCredit) {
+                throw new LedgerPostingException(
+                    "Transaction detail #{$detail->id} cannot contain "
+                    . 'both debit and credit amounts.'
+                );
+            }
+
+            if (! $hasDebit && ! $hasCredit) {
+                throw new LedgerPostingException(
+                    "Transaction detail #{$detail->id} must contain "
+                    . 'either a debit or credit amount.'
+                );
+            }
+        }
+    }
+
+    /**
+     * Generate active ledger entries from transaction details.
+     *
+     * @throws LedgerPostingException
+     */
+    private function generateLedgerEntries(
+        Transaction $transaction
+    ): void {
         $entryDate = $transaction->voucher_date
-            ? Carbon::parse($transaction->voucher_date)->toDateString()
+            ? Carbon::parse(
+                $transaction->voucher_date
+            )->toDateString()
             : Carbon::now()->toDateString();
 
         $now = Carbon::now();
@@ -163,12 +247,6 @@ final class LedgerPostingService
         $entries = [];
 
         foreach ($transaction->details as $detail) {
-            if ((int) $detail->transaction_id !== (int) $transaction->id) {
-                throw new LedgerPostingException(
-                    "Transaction detail #{$detail->id} does not belong to transaction #{$transaction->id}."
-                );
-            }
-
             $entries[] = [
                 'transaction_id'    => $transaction->id,
                 'company_id'        => $transaction->company_id,
@@ -178,43 +256,61 @@ final class LedgerPostingService
                 'voucher_number'    => $transaction->voucher_number,
                 'voucher_date'      => $entryDate,
                 'entry_date'        => $entryDate,
-                'description'       => $detail->description
+                'description'       =>
+                    $detail->description
                     ?? $transaction->narration
                     ?? null,
                 'debit_amount'      => $detail->debit_amount,
                 'credit_amount'     => $detail->credit_amount,
-
-                // Newly posted ledger entries are active.
                 'is_reversed'       => false,
-
                 'created_at'        => $now,
                 'updated_at'        => $now,
             ];
+        }
+
+        if ($entries === []) {
+            throw new LedgerPostingException(
+                "Transaction #{$transaction->id} has no ledger entries."
+            );
         }
 
         LedgerEntry::insert($entries);
     }
 
     /**
-     * Reverse only the active ledger entries belonging to this transaction
-     * and company.
+     * Reverse only active ledger entries belonging to this transaction.
      *
-     * Original entries become reversed.
-     * Reversal entries remain active so that the cancellation is reflected
-     * in the effective ledger balance.
+     * Original entries:
+     *     is_reversed = true
+     *
+     * Reversal entries:
+     *     is_reversed = false
+     *
+     * @throws LedgerPostingException
      */
-    private function reverseLedgerEntries(Transaction $transaction): void
-    {
+    private function reverseLedgerEntries(
+        Transaction $transaction
+    ): void {
         $existingEntries = LedgerEntry::query()
-            ->where('transaction_id', $transaction->id)
-            ->where('company_id', $transaction->company_id)
-            ->where('is_reversed', false)
+            ->where(
+                'transaction_id',
+                $transaction->id
+            )
+            ->where(
+                'company_id',
+                $transaction->company_id
+            )
+            ->where(
+                'is_reversed',
+                false
+            )
             ->lockForUpdate()
             ->get();
 
         if ($existingEntries->isEmpty()) {
             throw new LedgerPostingException(
-                "No active ledger entries found for transaction #{$transaction->id}."
+                "No active ledger entries found for "
+                . "transaction #{$transaction->id}."
             );
         }
 
@@ -232,39 +328,40 @@ final class LedgerPostingService
                 'voucher_number'    => $transaction->voucher_number,
                 'voucher_date'      => $now->toDateString(),
                 'entry_date'        => $now->toDateString(),
-                'description'       => 'Reversal: '
-                    . ($entry->description ?? $transaction->narration ?? ''),
-
-                // Reverse debit/credit amounts.
+                'description'       =>
+                    'Reversal: '
+                    . (
+                        $entry->description
+                        ?? $transaction->narration
+                        ?? ''
+                    ),
                 'debit_amount'      => $entry->credit_amount,
                 'credit_amount'     => $entry->debit_amount,
-
-                /*
-                 * IMPORTANT:
-                 *
-                 * The reversal entry itself remains active.
-                 * The original entry is marked as reversed below.
-                 */
                 'is_reversed'       => false,
-
                 'created_at'        => $now,
                 'updated_at'        => $now,
             ];
         }
 
-        /*
-         * Create reversal entries first.
-         */
         LedgerEntry::insert($reversals);
 
-        /*
-         * Mark only the original active entries as reversed.
-         */
         LedgerEntry::query()
-            ->whereIn('id', $existingEntries->pluck('id'))
-            ->where('transaction_id', $transaction->id)
-            ->where('company_id', $transaction->company_id)
-            ->where('is_reversed', false)
+            ->whereIn(
+                'id',
+                $existingEntries->pluck('id')
+            )
+            ->where(
+                'transaction_id',
+                $transaction->id
+            )
+            ->where(
+                'company_id',
+                $transaction->company_id
+            )
+            ->where(
+                'is_reversed',
+                false
+            )
             ->update([
                 'is_reversed' => true,
                 'updated_at'  => $now,
@@ -272,23 +369,32 @@ final class LedgerPostingService
     }
 
     /**
-     * Prevent duplicate active ledger entries for THIS transaction only.
-     *
-     * IMPORTANT:
-     * This must never inspect unrelated transactions.
+     * Prevent duplicate active ledger entries for this transaction.
      *
      * @throws LedgerPostingException
      */
-    private function preventDuplicateLedgerEntries(Transaction $transaction): void
-    {
+    private function preventDuplicateLedgerEntries(
+        Transaction $transaction
+    ): void {
         $exists = LedgerEntry::query()
-            ->where('transaction_id', $transaction->id)
-            ->where('is_reversed', false)
+            ->where(
+                'transaction_id',
+                $transaction->id
+            )
+            ->where(
+                'company_id',
+                $transaction->company_id
+            )
+            ->where(
+                'is_reversed',
+                false
+            )
             ->exists();
 
         if ($exists) {
             throw new LedgerPostingException(
-                "Transaction #{$transaction->id} already has active ledger entries. Duplicate posting prevented."
+                "Transaction #{$transaction->id} already has active "
+                . 'ledger entries. Duplicate posting prevented.'
             );
         }
     }

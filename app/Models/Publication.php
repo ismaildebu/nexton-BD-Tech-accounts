@@ -21,6 +21,8 @@ class Publication extends Model
         'code',
         'publication_type',
         'selling_price',
+        'sales_account_id',
+        'sales_return_account_id',
         'default_free_percentage',
         'is_active',
     ];
@@ -34,6 +36,16 @@ class Publication extends Model
     // ---------------------------------------------------------------
     // Relationships
     // ---------------------------------------------------------------
+
+    public function salesAccount(): BelongsTo
+    {
+        return $this->belongsTo(Account::class, 'sales_account_id');
+    }
+
+    public function salesReturnAccount(): BelongsTo
+    {
+        return $this->belongsTo(Account::class, 'sales_return_account_id');
+    }
 
     public function company(): BelongsTo
     {

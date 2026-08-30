@@ -34,6 +34,8 @@ class UpdatePublicationRequest extends FormRequest
             ],
             'publication_type'         => ['nullable', 'string', 'max:100'],
             'selling_price'            => ['required', 'numeric', 'min:0'],
+            'sales_account_id'         => ['nullable', Rule::exists('accounts', 'id')->where(fn ($q) => $q->where('company_id', $companyId)->where('account_type', 'Income'))],
+            'sales_return_account_id'  => ['nullable', Rule::exists('accounts', 'id')->where(fn ($q) => $q->where('company_id', $companyId)->where('account_type', 'Income'))],
             'default_free_percentage'  => ['nullable', 'numeric', 'min:0', 'max:100'],
             'is_active'                => ['sometimes', 'boolean'],
         ];

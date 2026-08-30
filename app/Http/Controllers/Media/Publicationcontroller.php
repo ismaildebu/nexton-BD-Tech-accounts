@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Media\StorePublicationRequest;
 use App\Http\Requests\Media\UpdatePublicationRequest;
 use App\Models\Publication;
+use App\Models\Account;
 
 /**
  * Complete CRUD for Publication. Company isolation is enforced two
@@ -41,7 +42,9 @@ class PublicationController extends Controller
 
     public function create()
     {
-        return view('media.publications.create');
+        $accounts = Account::query()->where('company_id', session('company_id'))->where('is_active', true)->where('account_type', 'Income')->orderBy('account_name')->get();
+
+        return view('media.publications.create', compact('accounts'));
     }
 
     public function store(StorePublicationRequest $request)
@@ -63,7 +66,9 @@ class PublicationController extends Controller
     {
         $this->authorize('update', $publication);
 
-        return view('media.publications.edit', compact('publication'));
+        $accounts = Account::query()->where('company_id', session('company_id'))->where('is_active', true)->where('account_type', 'Income')->orderBy('account_name')->get();
+
+        return view('media.publications.edit', compact('publication', 'accounts'));
     }
 
     public function update(UpdatePublicationRequest $request, Publication $publication)

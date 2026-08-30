@@ -48,6 +48,7 @@ class MediaParty extends Model
         'area',
         'opening_balance',
         'balance_type',
+        'account_id',
         'free_percentage',
         'is_active',
     ];
@@ -61,6 +62,11 @@ class MediaParty extends Model
     // ---------------------------------------------------------------
     // Relationships
     // ---------------------------------------------------------------
+
+    public function account(): BelongsTo
+    {
+        return $this->belongsTo(Account::class);
+    }
 
     public function company(): BelongsTo
     {

@@ -39,6 +39,7 @@ class StoreMediaPartyRequest extends FormRequest
             'alternate_phone'  => ['nullable', 'string', 'max:30'],
             'address'          => ['nullable', 'string', 'max:1000'],
             'area'             => ['nullable', 'string', 'max:150'],
+            'account_id'       => ['nullable', Rule::exists('accounts', 'id')->where(fn ($q) => $q->where('company_id', $companyId)->where('account_type', 'Asset')->where('nature', 'Customer'))],
             'opening_balance'  => ['nullable', 'numeric'],
             'balance_type'     => ['nullable', Rule::in([
                 MediaParty::BALANCE_RECEIVABLE,

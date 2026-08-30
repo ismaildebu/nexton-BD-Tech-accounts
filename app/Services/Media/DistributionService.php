@@ -44,11 +44,12 @@ final class DistributionService
     public function __construct(
         private readonly FreePercentageResolver $freePercentageResolver,
         private readonly NewspaperStockService $stockService,
+        private readonly MediaAccountingService $accountingService,
     ) {
     }
 
     /**
-     * @param  array<int, array{media_party_id:int, paid_quantity:int, rate:float}>  $items
+     * @param  array<int, array{media_party_id:int, paid_quantity:int, rate:string|float|int}>  $items
      *
      * @throws InsufficientNewspaperStockException
      * @throws InvalidArgumentException
@@ -65,11 +66,19 @@ final class DistributionService
             throw new InvalidArgumentException('A distribution must contain at least one item.');
         }
 
+        if ((int) $publication->company_id !== $companyId) {
+            throw new InvalidArgumentException('Publication does not belong to the current company.');
+        }
+
         // Load every party up front (company-scoped via BelongsToCompany's
         // global scope) so a spoofed/foreign party_id fails loudly instead
         // of silently resolving free% off the wrong company's defaults.
         $partyIds = collect($items)->pluck('media_party_id')->unique();
-        $parties  = MediaParty::query()->whereIn('id', $partyIds)->get()->keyBy('id');
+        $parties  = MediaParty::query()
+            ->where('company_id', $companyId)
+            ->whereIn('id', $partyIds)
+            ->get()
+            ->keyBy('id');
 
         if ($parties->count() !== $partyIds->count()) {
             throw new InvalidArgumentException('One or more parties could not be found for this company.');
@@ -79,12 +88,12 @@ final class DistributionService
         $lines = [];
         $totalPaid   = 0;
         $totalFree   = 0;
-        $totalAmount = 0;
+        $totalAmount = '0.00';
 
         foreach ($items as $item) {
             $party = $parties->get((int) $item['media_party_id']);
             $paid  = (int) $item['paid_quantity'];
-            $rate  = (float) $item['rate'];
+            $rate  = (string) $item['rate'];
 
             if ($paid < 0) {
                 throw new InvalidArgumentException('Paid quantity cannot be negative.');
@@ -101,7 +110,7 @@ final class DistributionService
             // Paid quantity creates the financial sales amount. Free
             // copies never create a receivable — they are deliberately
             // excluded from `amount` here.
-            $amount = round($paid * $rate, 2);
+            $amount = bcmul((string) $paid, $rate, 2);
 
             $lines[] = [
                 'media_party_id'    => $party->id,
@@ -117,7 +126,7 @@ final class DistributionService
 
             $totalPaid   += $paid;
             $totalFree   += $free;
-            $totalAmount += $amount;
+            $totalAmount = bcadd($totalAmount, $amount, 2);
         }
 
         $totalQuantity = $totalPaid + $totalFree;
@@ -139,7 +148,7 @@ final class DistributionService
             );
         }
 
-        // --- Step 4: persist everything atomically ---
+        // --- Step 4: persist business + stock + accounting atomically ---
         return DB::transaction(function () use (
             $publication,
             $distributionDate,
@@ -175,11 +184,6 @@ final class DistributionService
                 'total_amount'        => $totalAmount,
             ]);
 
-            // Re-checks availability under a row lock (see
-            // NewspaperStockService::removeStock) — this is the real
-            // enforcement point; the hasSufficientStock() call above is
-            // only a fast, early rejection so we don't build item rows
-            // for a request that will fail anyway.
             $this->stockService->removeStock(
                 $publication,
                 NewspaperStockMovement::TYPE_DISTRIBUTION,
@@ -190,24 +194,15 @@ final class DistributionService
                 createdBy: $createdBy,
             );
 
+            // A free-only distribution has no financial value, so there is
+            // deliberately no journal transaction for it.
+            $this->accountingService->postDistribution(
+                $header->fresh(['items.party', 'publication'])
+            );
+
             $header->update(['status' => MediaDistribution::STATUS_CONFIRMED]);
 
-            return $header->fresh(['items.party', 'publication']);
+            return $header->fresh(['items.party', 'publication', 'transaction']);
         });
-
-        // DistributionService::create() এর transaction-এর শেষে
-            $header->update(['status' => MediaDistribution::STATUS_CONFIRMED]);
-
-            // ✅ Accounting entry
-            try {
-                $this->accountingService->postDistribution($header->fresh(['items.party', 'publication']));
-            } catch (\InvalidArgumentException $e) {
-                // Account configure না থাকলে distribution তবুও হবে,
-                // শুধু accounting skip হবে — log করুন
-                \Log::warning("Media Distribution #{$header->id} accounting skipped: {$e->getMessage()}");
-            }
-
-            return $header->fresh(['items.party', 'publication']);
-
     }
 }
