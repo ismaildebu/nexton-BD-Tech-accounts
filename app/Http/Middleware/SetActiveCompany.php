@@ -59,11 +59,6 @@ class SetActiveCompany
                         'company_name',
                         'financial_year_id',
                     ]);
-                } else {
-                    session([
-                        'company_id' => $company->id,
-                        'company_name' => $company->company_name,
-                    ]);
                 }
             }
 

@@ -21,11 +21,12 @@ class EnsureCompanySelected
         }
 
         /*
-         * Company-scoped users are always locked to their own company.
+         * Company-scoped users are permanently locked to their assigned
+         * company. Any session company context is overwritten.
          */
         if ($user->company_id !== null) {
             if ((int) session('company_id') !== (int) $user->company_id) {
-                session([
+                session()->put([
                     'company_id' => $user->company_id,
                 ]);
             }
@@ -34,9 +35,22 @@ class EnsureCompanySelected
         }
 
         /*
-         * Super Admin requires an active company context.
+         * Super Admin is not permanently attached to one company.
+         * A company must be selected before entering company-scoped
+         * application areas.
+         *
+         * Company management routes must remain accessible without a
+         * selected company, so the controller can display the company list.
          */
-        if ($user->isSuperAdmin() && ! session()->has('company_id')) {
+        if (
+            $user->isSuperAdmin()
+            && ! session()->has('company_id')
+            && ! $request->routeIs(
+                'companies.index',
+                'companies.create',
+                'companies.store'
+            )
+        ) {
             return redirect()
                 ->route('companies.index')
                 ->with(

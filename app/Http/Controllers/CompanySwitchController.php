@@ -21,23 +21,26 @@ class CompanySwitchController extends Controller
             ],
         ]);
 
+        $user = $request->user();
+
         $company = Company::query()
             ->whereKey((int) $validated['company_id'])
             ->where('status', true)
             ->firstOrFail();
 
-        $user = $request->user();
-
-        if (! $user->canAccessCompany((int) $company->id)) {
-            abort(403, 'You do not have access to this company.');
-        }
+        abort_unless(
+            $user->canAccessCompany((int) $company->id),
+            403,
+            'You do not have access to this company.'
+        );
 
         $financialYear = FinancialYear::query()
             ->where('company_id', $company->id)
+            ->where('is_active', true)
             ->orderByDesc('start_date')
             ->first();
 
-        session([
+        session()->put([
             'company_id' => $company->id,
             'company_name' => $company->company_name,
             'financial_year_id' => $financialYear?->id,

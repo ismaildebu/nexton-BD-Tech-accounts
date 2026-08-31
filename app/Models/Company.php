@@ -1,13 +1,20 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Models;
 
+use Database\Factories\CompanyFactory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Company extends Model
 {
+    /** @use HasFactory<CompanyFactory> */
+    use HasFactory;
+
     protected $fillable = [
         'owner_id',
         'company_name',
@@ -25,21 +32,56 @@ class Company extends Model
         'business_type',
     ];
 
-    public const INVENTORY_ENABLED_TYPES = ['Trading', 'Manufacturing', 'Hospital'];
-    public const SALES_ORDER_ENABLED_TYPES = ['Trading', 'Manufacturing'];
-    public const MEDIA_ENABLED_TYPES = ['Media'];
+    public const INVENTORY_ENABLED_TYPES = [
+        'Trading',
+        'Manufacturing',
+        'Hospital',
+    ];
+
+    public const SALES_ORDER_ENABLED_TYPES = [
+        'Trading',
+        'Manufacturing',
+    ];
+
+    public const MEDIA_ENABLED_TYPES = [
+        'Media',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'status' => 'boolean',
+        ];
+    }
 
     public function hasModule(string $module): bool
     {
         return match ($module) {
-            'inventory'    => in_array($this->business_type, self::INVENTORY_ENABLED_TYPES, true),
-            'sales-orders' => in_array($this->business_type, self::SALES_ORDER_ENABLED_TYPES, true),
-            'media'        => in_array($this->business_type, self::MEDIA_ENABLED_TYPES, true),
-            default        => true,
+            'inventory' => in_array(
+                $this->business_type,
+                self::INVENTORY_ENABLED_TYPES,
+                true
+            ),
+
+            'sales-orders' => in_array(
+                $this->business_type,
+                self::SALES_ORDER_ENABLED_TYPES,
+                true
+            ),
+
+            'media' => in_array(
+                $this->business_type,
+                self::MEDIA_ENABLED_TYPES,
+                true
+            ),
+
+            default => true,
         };
     }
 
-    // Billing owner — governs plan limits
+    /**
+     * Billing owner for SaaS subscription limits.
+     */
     public function owner(): BelongsTo
     {
         return $this->belongsTo(User::class, 'owner_id');
