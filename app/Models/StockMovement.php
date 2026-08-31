@@ -34,19 +34,48 @@ class StockMovement extends Model
         return $this->belongsTo(Company::class);
     }
 
-    // Helper: adjust stock
-    public static function adjustStock($product_id, $warehouse_id, $quantity, $type)
-    {
-        $stock = ProductStock::firstOrCreate(
-            ['product_id' => $product_id, 'warehouse_id' => $warehouse_id],
-            ['quantity' => 0]
+        // Helper: adjust stock
+    public static function adjustStock(
+        int $productId,
+        int $warehouseId,
+        float|string $quantity,
+        string $type
+    ): void {
+        $product = Product::query()->findOrFail($productId);
+        $warehouse = Warehouse::query()->findOrFail($warehouseId);
+
+        if ((int) $product->company_id !== (int) $warehouse->company_id) {
+            throw new \RuntimeException(
+                'Product and warehouse must belong to the same company.'
+            );
+        }
+
+        $stock = ProductStock::query()->firstOrCreate(
+            [
+                'product_id' => $productId,
+                'warehouse_id' => $warehouseId,
+            ],
+            [
+                'quantity' => 0,
+            ]
         );
 
         if ($type === 'in') {
             $stock->increment('quantity', $quantity);
-        } elseif ($type === 'out') {
-            $stock->decrement('quantity', $quantity);
+
+            return;
         }
+
+        if ($type === 'out') {
+            $stock->decrement('quantity', $quantity);
+
+            return;
+        }
+
+        throw new \InvalidArgumentException(
+            "Unsupported stock movement type: {$type}"
+        );
     }
+    
 }
 
