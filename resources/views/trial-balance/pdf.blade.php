@@ -186,10 +186,13 @@
         @if(!empty($company->logo))
 
             @php
+
                 $logoPath = storage_path(
                     'app/public/' . ltrim($company->logo, '/')
                 );
+
             @endphp
+
 
             @if(is_file($logoPath))
 
@@ -311,107 +314,147 @@
 
             @forelse($accounts as $account)
 
-                <tr>
+                @php
 
-                    <td class="code">
-                        {{ $account->account_code }}
-                    </td>
+                    /*
+                     * An account is considered zero-balance only when
+                     * all six Trial Balance values are effectively zero.
+                     */
+                    $isZeroBalanceAccount =
+                        abs((float) $account->report_opening_debit) < 0.005
+                        && abs((float) $account->report_opening_credit) < 0.005
+                        && abs((float) $account->report_period_debit) < 0.005
+                        && abs((float) $account->report_period_credit) < 0.005
+                        && abs((float) $account->report_closing_debit) < 0.005
+                        && abs((float) $account->report_closing_credit) < 0.005;
 
-                    <td class="account account-name">
-                        {{ $account->account_name }}
-                    </td>
-
-
-                    <td class="amount">
-
-                        @if(abs((float) $account->report_opening_debit) < 0.005)
-
-                            <span class="zero">-</span>
-
-                        @else
-
-                            {{ number_format((float) $account->report_opening_debit, 2) }}
-
-                        @endif
-
-                    </td>
+                @endphp
 
 
-                    <td class="amount">
+                {{-- ====================================================
+                     ACCOUNT ROW
 
-                        @if(abs((float) $account->report_opening_credit) < 0.005)
+                     hide_zero=1
+                     => zero-balance accounts are omitted
 
-                            <span class="zero">-</span>
+                     hide_zero=0
+                     => all accounts are shown
+                ===================================================== --}}
+                @if(!request()->boolean('hide_zero') || !$isZeroBalanceAccount)
 
-                        @else
+                    <tr>
 
-                            {{ number_format((float) $account->report_opening_credit, 2) }}
-
-                        @endif
-
-                    </td>
-
-
-                    <td class="amount">
-
-                        @if(abs((float) $account->report_period_debit) < 0.005)
-
-                            <span class="zero">-</span>
-
-                        @else
-
-                            {{ number_format((float) $account->report_period_debit, 2) }}
-
-                        @endif
-
-                    </td>
+                        {{-- Code --}}
+                        <td class="code">
+                            {{ $account->account_code }}
+                        </td>
 
 
-                    <td class="amount">
-
-                        @if(abs((float) $account->report_period_credit) < 0.005)
-
-                            <span class="zero">-</span>
-
-                        @else
-
-                            {{ number_format((float) $account->report_period_credit, 2) }}
-
-                        @endif
-
-                    </td>
+                        {{-- Account --}}
+                        <td class="account account-name">
+                            {{ $account->account_name }}
+                        </td>
 
 
-                    <td class="amount">
+                        {{-- Opening Debit --}}
+                        <td class="amount">
 
-                        @if(abs((float) $account->report_closing_debit) < 0.005)
+                            @if(abs((float) $account->report_opening_debit) < 0.005)
 
-                            <span class="zero">-</span>
+                                <span class="zero">-</span>
 
-                        @else
+                            @else
 
-                            {{ number_format((float) $account->report_closing_debit, 2) }}
+                                {{ number_format((float) $account->report_opening_debit, 2) }}
 
-                        @endif
+                            @endif
 
-                    </td>
+                        </td>
 
 
-                    <td class="amount">
+                        {{-- Opening Credit --}}
+                        <td class="amount">
 
-                        @if(abs((float) $account->report_closing_credit) < 0.005)
+                            @if(abs((float) $account->report_opening_credit) < 0.005)
 
-                            <span class="zero">-</span>
+                                <span class="zero">-</span>
 
-                        @else
+                            @else
 
-                            {{ number_format((float) $account->report_closing_credit, 2) }}
+                                {{ number_format((float) $account->report_opening_credit, 2) }}
 
-                        @endif
+                            @endif
 
-                    </td>
+                        </td>
 
-                </tr>
+
+                        {{-- Period Debit --}}
+                        <td class="amount">
+
+                            @if(abs((float) $account->report_period_debit) < 0.005)
+
+                                <span class="zero">-</span>
+
+                            @else
+
+                                {{ number_format((float) $account->report_period_debit, 2) }}
+
+                            @endif
+
+                        </td>
+
+
+                        {{-- Period Credit --}}
+                        <td class="amount">
+
+                            @if(abs((float) $account->report_period_credit) < 0.005)
+
+                                <span class="zero">-</span>
+
+                            @else
+
+                                {{ number_format((float) $account->report_period_credit, 2) }}
+
+                            @endif
+
+                        </td>
+
+
+                        {{-- Closing Debit --}}
+                        <td class="amount">
+
+                            @if(abs((float) $account->report_closing_debit) < 0.005)
+
+                                <span class="zero">-</span>
+
+                            @else
+
+                                {{ number_format((float) $account->report_closing_debit, 2) }}
+
+                            @endif
+
+                        </td>
+
+
+                        {{-- Closing Credit --}}
+                        <td class="amount">
+
+                            @if(abs((float) $account->report_closing_credit) < 0.005)
+
+                                <span class="zero">-</span>
+
+                            @else
+
+                                {{ number_format((float) $account->report_closing_credit, 2) }}
+
+                            @endif
+
+                        </td>
+
+                    </tr>
+
+                @endif
+
 
             @empty
 
@@ -422,7 +465,6 @@
                         style="text-align: center; padding: 15px;"
                     >
                         No accounts found.
-
                     </td>
 
                 </tr>
@@ -432,6 +474,12 @@
         </tbody>
 
 
+        {{-- ============================================================
+             TOTALS
+
+             IMPORTANT:
+             Totals remain unchanged intentionally.
+        ============================================================= --}}
         <tfoot>
 
             <tr class="total-row">
@@ -487,6 +535,7 @@
                 <td style="border: none; padding: 2px 0;">
 
                     Closing Debit:
+
                     <strong>
                         {{ number_format($totalClosingDebit, 2) }}
                     </strong>
@@ -500,6 +549,7 @@
                 >
 
                     Closing Credit:
+
                     <strong>
                         {{ number_format($totalClosingCredit, 2) }}
                     </strong>

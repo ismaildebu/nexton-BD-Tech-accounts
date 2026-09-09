@@ -15,6 +15,7 @@ use App\Models\VoucherType;
 use App\Services\LedgerPostingService;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
+use App\Models\PrintOrder;
 
 /**
  * Posts Media business events to the accounting ledger.
@@ -350,6 +351,132 @@ final class MediaAccountingService
             return $transaction->fresh(['details', 'entries']);
         });
     }
+
+    public function postPrintOrderReceived(PrintOrder $order): ?Transaction
+        {
+            return DB::transaction(function () use ($order): ?Transaction {
+                $order = PrintOrder::query()
+                    ->whereKey($order->id)
+                    ->where('company_id', $order->company_id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                // Idempotency: already posted হলে নতুন transaction তৈরি হবে না.
+                if ($order->transaction_id !== null) {
+                    return Transaction::query()->findOrFail($order->transaction_id);
+                }
+
+                $order->loadMissing(['vendor']);
+
+                if (! $order->vendor) {
+                    throw new InvalidArgumentException(
+                        "Print Order #{$order->id} has no Vendor configured."
+                    );
+                }
+
+                $this->assertCompany(
+                    $order->vendor->company_id,
+                    $order->company_id,
+                    'Vendor'
+                );
+
+                if (! $order->vendor->account_id) {
+                    throw new InvalidArgumentException(
+                        "Vendor '{$order->vendor->name}' has no payable Account configured."
+                    );
+                }
+
+                $this->assertActiveAccount(
+                    $order->vendor->account_id,
+                    $order->company_id,
+                    'Vendor Payable'
+                );
+
+                $receivedQuantity = (int) $order->received_quantity;
+                $unitPrintingCost = (string) $order->unit_printing_cost;
+
+                $totalPrintingCost = bcmul(
+                    (string) $receivedQuantity,
+                    $unitPrintingCost,
+                    2
+                );
+
+                if (bccomp($totalPrintingCost, '0.00', 2) <= 0) {
+                    $order->update([
+                        'total_printing_cost' => '0.00',
+                    ]);
+
+                    return null;
+                }
+
+                /*
+                * Printing Expense must be a unique active account for this company.
+                * We deliberately do not hard-code an account ID.
+                */
+                $printingExpenseAccounts = Account::query()
+                    ->where('company_id', $order->company_id)
+                    ->where('account_name', 'Printing Expense')
+                    ->where('account_type', 'Expense')
+                    ->where('nature', 'Expense')
+                    ->where('is_active', true)
+                    ->get();
+
+                if ($printingExpenseAccounts->count() !== 1) {
+                    throw new InvalidArgumentException(
+                        "Exactly one active 'Printing Expense' account is required for this company."
+                    );
+                }
+
+                $printingExpenseAccountId = $printingExpenseAccounts->first()->id;
+
+                $financialYear = $this->activeFinancialYear($order->company_id);
+                $voucherType = $this->journalVoucherType($order->company_id);
+
+                $transaction = Transaction::create([
+                    'company_id' => $order->company_id,
+                    'financial_year_id' => $financialYear->id,
+                    'voucher_type_id' => $voucherType->id,
+                    'voucher_number' => $voucherType->generateNextVoucherNumber(),
+                    'voucher_date' => $order->print_date ?? $order->order_date,
+                    'narration' => "Printing Cost — {$order->order_number}",
+                    'total_debit' => $totalPrintingCost,
+                    'total_credit' => $totalPrintingCost,
+                    'status' => Transaction::STATUS_APPROVED,
+                    'created_by' => $order->created_by,
+                    'approved_by' => $order->created_by,
+                    'approved_at' => now(),
+                ]);
+
+                // Dr Printing Expense
+                TransactionDetail::create([
+                    'transaction_id' => $transaction->id,
+                    'account_id' => $printingExpenseAccountId,
+                    'debit_amount' => $totalPrintingCost,
+                    'credit_amount' => '0.00',
+                    'description' => "Printing Expense — {$order->order_number}",
+                    'sort_order' => 1,
+                ]);
+
+                // Cr Vendor Payable
+                TransactionDetail::create([
+                    'transaction_id' => $transaction->id,
+                    'account_id' => $order->vendor->account_id,
+                    'debit_amount' => '0.00',
+                    'credit_amount' => $totalPrintingCost,
+                    'description' => "Payable — {$order->vendor->name}",
+                    'sort_order' => 2,
+                ]);
+
+                $this->ledgerPostingService->post($transaction);
+
+                $order->update([
+                    'total_printing_cost' => $totalPrintingCost,
+                    'transaction_id' => $transaction->id,
+                ]);
+
+                return $transaction->fresh(['details', 'entries']);
+            });
+        }
 
     private function activeFinancialYear(int $companyId): FinancialYear
     {

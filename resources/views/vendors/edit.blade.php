@@ -8,58 +8,118 @@
     <div class="bg-white rounded-xl shadow-sm p-6">
         <h2 class="text-lg font-semibold mb-6">Edit Vendor</h2>
 
+        @if($errors->any())
+            <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
+                @foreach($errors->all() as $error)
+                    <p>{{ $error }}</p>
+                @endforeach
+            </div>
+        @endif
+
         <form method="POST" action="{{ route('vendors.update', $vendor) }}" class="space-y-4">
-            @csrf @method('PUT')
+            @csrf
+            @method('PUT')
 
             <div>
-                <label class="block text-sm font-medium text-slate-700 mb-1">Vendor Name *</label>
+                <label class="block text-sm font-medium text-slate-700 mb-1">
+                    Vendor Name *
+                </label>
                 <input type="text" name="name" value="{{ old('name', $vendor->name) }}" required
                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
             </div>
 
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">
+                    Accounting Account *
+                </label>
+                <select name="account_id" required
+                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="">-- Select Accounting Account --</option>
+
+                    @foreach($accounts as $account)
+                        <option value="{{ $account->id }}"
+                            @selected(old('account_id', $vendor->account_id) == $account->id)>
+                            {{ $account->account_code }} - {{ $account->account_name }}
+                        </option>
+                    @endforeach
+                </select>
+
+                <p class="text-xs text-slate-500 mt-1">
+                    This account will be used for vendor payable/printing cost accounting.
+                </p>
+            </div>
+
             <div class="grid grid-cols-2 gap-4">
                 <div>
-                    <label class="block text-sm font-medium text-slate-700 mb-1">Phone</label>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">
+                        Phone
+                    </label>
                     <input type="text" name="phone" value="{{ old('phone', $vendor->phone) }}"
                            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
                 </div>
+
                 <div>
-                    <label class="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">
+                        Email
+                    </label>
                     <input type="email" name="email" value="{{ old('email', $vendor->email) }}"
                            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
                 </div>
             </div>
 
             <div>
-                <label class="block text-sm font-medium text-slate-700 mb-1">Address</label>
+                <label class="block text-sm font-medium text-slate-700 mb-1">
+                    Address
+                </label>
                 <textarea name="address" rows="2"
                           class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">{{ old('address', $vendor->address) }}</textarea>
             </div>
 
             <div class="grid grid-cols-2 gap-4">
                 <div>
-                    <label class="block text-sm font-medium text-slate-700 mb-1">Trade License</label>
-                    <input type="text" name="trade_license" value="{{ old('trade_license', $vendor->trade_license) }}"
+                    <label class="block text-sm font-medium text-slate-700 mb-1">
+                        Trade License
+                    </label>
+                    <input type="text" name="trade_license"
+                           value="{{ old('trade_license', $vendor->trade_license) }}"
                            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
                 </div>
+
                 <div>
-                    <label class="block text-sm font-medium text-slate-700 mb-1">TIN</label>
-                    <input type="text" name="tin" value="{{ old('tin', $vendor->tin) }}"
+                    <label class="block text-sm font-medium text-slate-700 mb-1">
+                        TIN
+                    </label>
+                    <input type="text" name="tin"
+                           value="{{ old('tin', $vendor->tin) }}"
                            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
                 </div>
             </div>
 
             <div class="grid grid-cols-2 gap-4">
                 <div>
-                    <label class="block text-sm font-medium text-slate-700 mb-1">Opening Balance (৳)</label>
-                    <input type="number" name="opening_balance" value="{{ old('opening_balance', $vendor->opening_balance) }}" step="0.01"
+                    <label class="block text-sm font-medium text-slate-700 mb-1">
+                        Opening Balance (৳)
+                    </label>
+                    <input type="number" name="opening_balance"
+                           value="{{ old('opening_balance', $vendor->opening_balance) }}"
+                           step="0.01"
                            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
                 </div>
+
                 <div>
-                    <label class="block text-sm font-medium text-slate-700 mb-1">Balance Type</label>
-                    <select name="balance_type" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
-                        <option value="Payable" {{ $vendor->balance_type == 'Payable' ? 'selected' : '' }}>Payable</option>
-                        <option value="Advance" {{ $vendor->balance_type == 'Advance' ? 'selected' : '' }}>Advance</option>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">
+                        Balance Type
+                    </label>
+                    <select name="balance_type"
+                            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                        <option value="Payable"
+                            @selected(old('balance_type', $vendor->balance_type) === 'Payable')}>
+                            Payable
+                        </option>
+                        <option value="Advance"
+                            @selected(old('balance_type', $vendor->balance_type) === 'Advance')}>
+                            Advance
+                        </option>
                     </select>
                 </div>
             </div>
@@ -69,6 +129,7 @@
                         class="bg-blue-600 text-white px-6 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">
                     Update Vendor
                 </button>
+
                 <a href="{{ route('vendors.index') }}"
                    class="bg-slate-100 text-slate-700 px-6 py-2 rounded-lg text-sm font-medium hover:bg-slate-200">
                     Cancel

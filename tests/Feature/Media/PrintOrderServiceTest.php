@@ -7,7 +7,10 @@ use App\Models\PrintPlan;
 use App\Models\Publication;
 use App\Models\User;
 use App\Services\Media\PrintOrderService;
+use App\Services\Media\NewspaperStockService;
 use Tests\Feature\Media\Concerns\CreatesMediaCompany;
+use App\Models\NewspaperStockMovement;
+
 
 uses(CreatesMediaCompany::class);
 
@@ -18,7 +21,7 @@ beforeEach(function () {
     $this->publication = Publication::create([
         'name' => 'Daily Star', 'code' => 'DS', 'selling_price' => 10,
     ]);
-    $this->service = new PrintOrderService();
+   $this->service = new PrintOrderService(new NewspaperStockService());
 });
 
 function approvedPlan(int $companyId, int $publicationId, int $userId, int $finalQuantity, string $planDate = '2026-09-01'): PrintPlan
@@ -125,4 +128,30 @@ it('allows cancelling from Draft, Ordered or Printing but not after Printed', fu
 
     $cancelled = $this->service->cancel($order);
     expect($cancelled->status)->toBe('Cancelled');
+});
+
+it('adds received quantity to newspaper stock when a print order is received', function () {
+    $plan = approvedPlan($this->company->id, $this->publication->id, $this->user->id, 5000);
+
+    $order = $this->service->createFromPlan($plan, $this->company->id, $this->user->id, [
+        'order_date' => '2026-09-01',
+    ]);
+
+    $order = $this->service->approve($order);
+    $order = $this->service->markPrinting($order);
+    $order = $this->service->markPrinted($order, 4980);
+
+    $order = $this->service->markReceived($order, 4950);
+
+    $movement = NewspaperStockMovement::query()
+        ->where('publication_id', $this->publication->id)
+        ->where('type', NewspaperStockMovement::TYPE_RECEIVED)
+        ->where('reference_type', $order->getMorphClass())
+        ->where('reference_id', $order->id)
+        ->first();
+
+    expect($order->status)->toBe(PrintOrder::STATUS_RECEIVED)
+        ->and($order->received_quantity)->toBe(4950)
+        ->and($movement)->not->toBeNull()
+        ->and($movement->quantity)->toBe(4950);
 });

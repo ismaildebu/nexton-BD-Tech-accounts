@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\EnforcesPlanLimits;
+use App\Models\Product;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\Vendor;
@@ -37,7 +38,10 @@ class PurchaseOrderController extends Controller
                         ->where('is_active', true)
                         ->orderBy('name')
                         ->get();
-        return view('purchase-orders.create', compact('vendors'));
+        $products = Product::where('company_id', $company_id)
+                        ->orderBy('name')
+                        ->get();
+        return view('purchase-orders.create', compact('vendors', 'products'));
     }
 
     public function store(Request $request)
@@ -45,15 +49,16 @@ class PurchaseOrderController extends Controller
         $company_id = session('company_id');
 
         $request->validate([
-            // ✅ Fix: আগে শুধু 'exists:vendors,id' ছিল — company scope ছাড়া,
-            // ফলে অন্য company-র vendor_id দিলেও PO তৈরি হয়ে যেত (IDOR)।
             'vendor_id' => [
                 'required',
                 Rule::exists('vendors', 'id')->where(fn ($q) => $q->where('company_id', $company_id)),
             ],
             'order_date'   => 'required|date',
             'items'        => 'required|array|min:1',
-            'items.*.item_name'  => 'required|string',
+            'items.*.product_id' => [
+                'required',
+                Rule::exists('products', 'id')->where(fn ($q) => $q->where('company_id', $company_id)),
+            ],
             'items.*.quantity'   => 'required|numeric|min:0.01',
             'items.*.unit_price' => 'required|numeric|min:0',
         ]);
@@ -99,13 +104,26 @@ class PurchaseOrderController extends Controller
                 'notes'         => $request->notes,
             ]);
 
+            // ✅ Fix: item_name এখন client input থেকে নয় — product_id validate
+            // করার পর server-side এ Product থেকে name/unit স্ন্যাপশট নেওয়া হচ্ছে,
+            // যাতে inventory-এর সাথে সঠিকভাবে product লিঙ্কড থাকে (N+1 এড়াতে
+            // সব Product একবারে load করা হচ্ছে)।
+            $productIds = collect($request->items)->pluck('product_id');
+            $products = Product::where('company_id', $company_id)
+                            ->whereIn('id', $productIds)
+                            ->get()
+                            ->keyBy('id');
+
             foreach ($request->items as $item) {
+                $product = $products->get($item['product_id']);
+
                 PurchaseOrderItem::create([
                     'purchase_order_id' => $order->id,
-                    'item_name'         => $item['item_name'],
+                    'product_id'        => $product->id,
+                    'item_name'         => $product->name,
                     'description'       => $item['description'] ?? null,
                     'quantity'          => $item['quantity'],
-                    'unit'              => $item['unit'] ?? null,
+                    'unit'              => $item['unit'] ?? $product->unit ?? null,
                     'unit_price'        => $item['unit_price'],
                     'total'             => $item['quantity'] * $item['unit_price'],
                 ]);

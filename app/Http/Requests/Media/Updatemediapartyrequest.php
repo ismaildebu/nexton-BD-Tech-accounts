@@ -47,6 +47,13 @@ class UpdateMediaPartyRequest extends FormRequest
             ])],
             'free_percentage'  => ['nullable', 'numeric', 'min:0', 'max:100'],
             'is_active'        => ['sometimes', 'boolean'],
+
+            'beat'               => ['nullable', 'string', 'max:255'],
+            'email'              => ['nullable', 'email', 'max:255'],
+            'district'           => ['nullable', 'string', 'max:150'],
+            'media_outlet'       => ['nullable', 'string', 'max:255'],
+            'commission_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+
         ];
     }
 }

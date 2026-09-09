@@ -14,23 +14,24 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 /**
  * MediaParty
  * ----------
- * One shared table for Agent and Hawker, distinguished by `type`.
+ * One shared table for Agent, Hawker, and Journalist, distinguished by `type`.
  *
- * IMPORTANT BUSINESS RULE: Agent and Hawker are completely independent.
- * There is NO Agent -> Hawker relationship anywhere on this model, and
- * none should ever be added.
+ * IMPORTANT BUSINESS RULE: Agent, Hawker, and Journalist are completely independent.
+ * There is NO relationship between types anywhere on this model.
  */
 class MediaParty extends Model
 {
     use SoftDeletes;
     use BelongsToCompany;
 
-    public const TYPE_AGENT  = 'agent';
-    public const TYPE_HAWKER = 'hawker';
+    public const TYPE_AGENT      = 'agent';
+    public const TYPE_HAWKER     = 'hawker';
+    public const TYPE_JOURNALIST = 'journalist';   // ← নতুন
 
     public const TYPES = [
         self::TYPE_AGENT,
         self::TYPE_HAWKER,
+        self::TYPE_JOURNALIST,                     // ← নতুন
     ];
 
     public const BALANCE_RECEIVABLE = 'Receivable';
@@ -51,12 +52,19 @@ class MediaParty extends Model
         'account_id',
         'free_percentage',
         'is_active',
+        // ── journalist-specific (nullable for agent/hawker) ──
+        'beat',
+        'email',
+        'district',
+        'media_outlet',
+        'commission_percent',
     ];
 
     protected $casts = [
-        'opening_balance' => 'decimal:2',
-        'free_percentage' => 'decimal:2',
-        'is_active'       => 'boolean',
+        'opening_balance'    => 'decimal:2',
+        'free_percentage'    => 'decimal:2',
+        'commission_percent' => 'decimal:2',       // ← নতুন
+        'is_active'          => 'boolean',
     ];
 
     // ---------------------------------------------------------------
@@ -107,6 +115,11 @@ class MediaParty extends Model
         return $query->where('type', self::TYPE_HAWKER);
     }
 
+    public function scopeJournalists(Builder $query): Builder  // ← নতুন
+    {
+        return $query->where('type', self::TYPE_JOURNALIST);
+    }
+
     // ---------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------
@@ -119,5 +132,10 @@ class MediaParty extends Model
     public function isHawker(): bool
     {
         return $this->type === self::TYPE_HAWKER;
+    }
+
+    public function isJournalist(): bool  // ← নতুন
+    {
+        return $this->type === self::TYPE_JOURNALIST;
     }
 }

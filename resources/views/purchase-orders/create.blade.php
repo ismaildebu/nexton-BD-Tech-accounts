@@ -59,7 +59,7 @@
                     <table class="w-full text-sm border rounded-lg overflow-hidden">
                         <thead class="bg-slate-50">
                             <tr>
-                                <th class="text-left px-3 py-2 font-medium">Item Name *</th>
+                                <th class="text-left px-3 py-2 font-medium">Product *</th>
                                 <th class="text-left px-3 py-2 font-medium">Description</th>
                                 <th class="text-left px-3 py-2 font-medium w-20">Qty *</th>
                                 <th class="text-left px-3 py-2 font-medium w-20">Unit</th>
@@ -72,9 +72,18 @@
                             <template x-for="(item, index) in items" :key="index">
                                 <tr class="border-t">
                                     <td class="px-2 py-2">
-                                        <input type="text" :name="`items[${index}][item_name]`"
-                                               x-model="item.item_name" required
-                                               class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+                                        <select :name="`items[${index}][product_id]`" x-model="item.product_id"
+                                                @change="onProductChange(index, $event)" required
+                                                class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+                                            <option value="">-- Select Product --</option>
+                                            @foreach($products as $product)
+                                                <option value="{{ $product->id }}"
+                                                        data-price="{{ $product->purchase_price ?? 0 }}"
+                                                        data-unit="{{ $product->unit ?? '' }}">
+                                                    {{ $product->name }}
+                                                </option>
+                                            @endforeach
+                                        </select>
                                     </td>
                                     <td class="px-2 py-2">
                                         <input type="text" :name="`items[${index}][description]`"
@@ -163,14 +172,14 @@
 <script>
 function poForm() {
     return {
-        items: [{ item_name: '', description: '', quantity: 1, unit: '', unit_price: 0, total: 0 }],
+        items: [{ product_id: '', description: '', quantity: 1, unit: '', unit_price: 0, total: 0 }],
         tax: 0,
         discount: 0,
         subtotal: 0,
         grandTotal: 0,
 
         addItem() {
-            this.items.push({ item_name: '', description: '', quantity: 1, unit: '', unit_price: 0, total: 0 });
+            this.items.push({ product_id: '', description: '', quantity: 1, unit: '', unit_price: 0, total: 0 });
         },
 
         removeItem(index) {
@@ -178,6 +187,14 @@ function poForm() {
                 this.items.splice(index, 1);
                 this.calcGrandTotal();
             }
+        },
+
+        onProductChange(index, event) {
+            const option = event.target.selectedOptions[0];
+            const item = this.items[index];
+            item.unit_price = parseFloat(option.dataset.price || 0);
+            item.unit = option.dataset.unit || '';
+            this.calcTotal(index);
         },
 
         calcTotal(index) {

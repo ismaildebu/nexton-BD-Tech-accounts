@@ -17,9 +17,9 @@ class Account extends Model
 {
     use HasFactory;
     use SoftDeletes;
-    // ✅ Fix #5 — BelongsToCompany Trait যোগ করা হয়েছে
-    // এখন থেকে route model binding স্বয়ংক্রিয়ভাবে company চেক করবে।
-    // অন্য company-র account URL-এ দিলে 404 পাবে — IDOR বন্ধ।
+
+    // Fix #5 — BelongsToCompany Trait
+    // Route model binding automatically checks company ownership.
     use BelongsToCompany;
 
     // ──────────────────────────────────────────────────────────────
@@ -48,24 +48,13 @@ class Account extends Model
     public const NATURE_GENERAL     = 'General';
 
     /**
-     * ✅ Fix #7 — Account Code Range সংশোধন
+     * Account code ranges.
      *
-     * ❌ পুরাতন (ভুল):
-     *   Asset     → 1001–1999
-     *   Expense   → 2001–2999   ← Expense কে 2xxx দেওয়া ছিল, Liability-র জায়গায়!
-     *   Liability → 3000–3999
-     *   Equity    → 4000–4999
-     *   Income    → 5000–5999
-     *
-     * ✅ নতুন (Bangladesh standard practice):
-     *   Asset     → 1000–1999
-     *   Liability → 2000–2999
-     *   Equity    → 3000–3999
-     *   Income    → 4000–4999
-     *   Expense   → 5000–5999
-     *
-     * ⚠️  IMPORTANT: পুরাতন data থাকলে migration দিয়ে রেঞ্জ বদলানো যাবে না।
-     *    নিচের migration ফাইলটি (fix_account_code_ranges migration) দেখুন।
+     * Asset     → 1000–1999
+     * Liability → 2000–2999
+     * Equity    → 3000–3999
+     * Income    → 4000–4999
+     * Expense   → 5000–5999
      */
     public const CODE_RANGES = [
         self::TYPE_ASSET     => ['min' => 1000, 'max' => 1999],
@@ -151,25 +140,34 @@ class Account extends Model
 
     public static function defaultBalanceType(string $type): string
     {
-        return in_array($type, [self::TYPE_ASSET, self::TYPE_EXPENSE], strict: true)
+        return in_array(
+            $type,
+            [self::TYPE_ASSET, self::TYPE_EXPENSE],
+            strict: true
+        )
             ? self::BALANCE_DEBIT
             : self::BALANCE_CREDIT;
     }
 
     /**
-     * পরবর্তী account code generate করো।
-     * CODE_RANGES অনুযায়ী সর্বোচ্চ existing code + 1।
+     * Generate the next account code.
      *
      * @throws AccountCodeRangeExceededException
      */
-    public static function generateNextCode(string $type, int $companyId): int
-    {
-        $range = self::CODE_RANGES[$type] ?? ['min' => 1000, 'max' => 1999];
+    public static function generateNextCode(
+        string $type,
+        int $companyId
+    ): int {
+        $range = self::CODE_RANGES[$type]
+            ?? ['min' => 1000, 'max' => 1999];
 
         $lastAccount = self::withTrashed()
-            ->withoutGlobalScope('company')           // ✅ trait-এর scope bypass
+            ->withoutGlobalScope('company')
             ->where('company_id', $companyId)
-            ->whereBetween('account_code', [$range['min'], $range['max']])
+            ->whereBetween(
+                'account_code',
+                [$range['min'], $range['max']]
+            )
             ->orderBy('account_code', 'desc')
             ->lockForUpdate()
             ->first();
@@ -237,9 +235,28 @@ class Account extends Model
         return $this->children()->with('childrenRecursive');
     }
 
+    /**
+     * Active ledger entries only.
+     *
+     * Used by normal ledger/reporting operations.
+     * Reversed original entries are intentionally excluded.
+     */
     public function ledgerEntries(): HasMany
     {
-        return $this->hasMany(LedgerEntry::class)->where('is_reversed', false);
+        return $this->hasMany(LedgerEntry::class)
+            ->where('is_reversed', false);
+    }
+
+    /**
+     * All ledger entries, including reversed entries.
+     *
+     * Used for calculating the actual account balance because
+     * a cancelled voucher contains both the original entry and
+     * its reversal entry.
+     */
+    public function allLedgerEntries(): HasMany
+    {
+        return $this->hasMany(LedgerEntry::class);
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -269,23 +286,22 @@ class Account extends Model
     }
 
     /**
-     * ✅ isDebitNormal() — Fix #3 (LedgerController running balance) এর dependency।
+     * Determine whether this account has a debit-normal balance.
      *
-     * ┌────────────────┬──────────────────┐
-     * │  Account Type  │  Normal Balance  │
-     * ├────────────────┼──────────────────┤
-     * │  Asset         │  Debit  ✅       │
-     * │  Expense       │  Debit  ✅       │
-     * │  Liability     │  Credit ❌       │
-     * │  Equity        │  Credit ❌       │
-     * │  Income        │  Credit ❌       │
-     * └────────────────┴──────────────────┘
+     * Asset   → Debit
+     * Expense → Debit
+     * Liability → Credit
+     * Equity → Credit
+     * Income → Credit
      */
     public function isDebitNormal(): bool
     {
         return in_array(
             $this->account_type,
-            [self::TYPE_ASSET, self::TYPE_EXPENSE],
+            [
+                self::TYPE_ASSET,
+                self::TYPE_EXPENSE,
+            ],
             strict: true
         );
     }
@@ -294,24 +310,49 @@ class Account extends Model
     // Accessors
     // ──────────────────────────────────────────────────────────────
 
+    /**
+     * Calculate the actual current balance.
+     *
+     * Includes both original and reversal ledger entries.
+     *
+     * Example:
+     *
+     * Original Credit 12,000
+     * Reversal Debit  12,000
+     * -----------------------
+     * Net Balance          0
+     */
     public function getCurrentBalanceAttribute(): float
     {
-        $debitTotal  = $this->ledgerEntries()->sum('debit_amount');
-        $creditTotal = $this->ledgerEntries()->sum('credit_amount');
+        $debitTotal = $this->allLedgerEntries()
+            ->sum('debit_amount');
+
+        $creditTotal = $this->allLedgerEntries()
+            ->sum('credit_amount');
 
         if ($this->isDebitNormal()) {
-            return (float) ($this->opening_balance + ($debitTotal - $creditTotal));
+            return (float) (
+                $this->opening_balance
+                + ($debitTotal - $creditTotal)
+            );
         }
 
-        return (float) ($this->opening_balance + ($creditTotal - $debitTotal));
+        return (float) (
+            $this->opening_balance
+            + ($creditTotal - $debitTotal)
+        );
     }
 
     public function getFormattedBalanceAttribute(): string
     {
         $symbol = optional(
-            $this->relationLoaded('company') ? $this->company : null
+            $this->relationLoaded('company')
+                ? $this->company
+                : null
         )->currency_symbol ?? '৳';
 
-        return $symbol . ' ' . number_format($this->current_balance, 2);
+        return $symbol
+            . ' '
+            . number_format($this->current_balance, 2);
     }
 }

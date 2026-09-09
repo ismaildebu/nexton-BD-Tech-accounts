@@ -25,7 +25,7 @@
                     <option value="">Select account...</option>
                     @foreach($accounts as $account)
                         <option value="{{ $account->id }}" {{ old('account_id') == $account->id ? 'selected' : '' }}>
-                            {{ $account->name }}
+                            {{ $account->account_name }}
                         </option>
                     @endforeach
                 </select>

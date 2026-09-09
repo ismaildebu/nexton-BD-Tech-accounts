@@ -7,11 +7,6 @@ namespace App\Http\Requests\Media;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
-/**
- * Ad-hoc Print Order (no Print Plan behind it) — e.g. a reprint.
- * Order-linked-to-plan creation uses StorePrintOrderFromPlanRequest
- * instead, where ordered_quantity is never hand-entered.
- */
 class StorePrintOrderRequest extends FormRequest
 {
     public function authorize(): bool
@@ -30,18 +25,47 @@ class StorePrintOrderRequest extends FormRequest
             'publication_id' => [
                 'required',
                 'integer',
-                Rule::exists('publications', 'id')->where(fn ($q) => $q->where('company_id', $companyId)),
+                Rule::exists('publications', 'id')
+                    ->where(fn ($q) => $q->where('company_id', $companyId)),
             ],
-            // Printing press — reuses the existing Vendor table.
+
             'vendor_id' => [
                 'nullable',
                 'integer',
-                Rule::exists('vendors', 'id')->where(fn ($q) => $q->where('company_id', $companyId)),
+                Rule::exists('vendors', 'id')
+                    ->where(fn ($q) => $q->where('company_id', $companyId)),
             ],
-            'order_date'         => ['required', 'date'],
-            'print_date'         => ['nullable', 'date', 'after_or_equal:order_date'],
-            'ordered_quantity'   => ['required', 'integer', 'min:1'],
-            'notes'              => ['nullable', 'string', 'max:1000'],
+
+            'order_date' => [
+                'required',
+                'date',
+            ],
+
+            'print_date' => [
+                'nullable',
+                'date',
+                'after_or_equal:order_date',
+            ],
+
+            'buffer_percentage' => [
+                'required',
+                'numeric',
+                'min:0',
+                'max:100',
+            ],
+
+            'unit_printing_cost' => [
+                'required',
+                'numeric',
+                'gt:0',
+                'max:999999999.9999',
+            ],
+
+            'notes' => [
+                'nullable',
+                'string',
+                'max:1000',
+            ],
         ];
     }
 }

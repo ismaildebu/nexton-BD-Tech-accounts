@@ -62,7 +62,9 @@ class MediaReturnController extends Controller
                 companyId: $companyId,
                 createdBy: auth()->id(),
                 items: $request->validated('items'),
-                distributionId: $request->validated('media_distribution_id'),
+                distributionId: $request->filled('media_distribution_id')
+                ? $request->integer('media_distribution_id')
+                : null,
                 notes: $request->validated('notes'),
             );
         } catch (InvalidArgumentException $e) {
@@ -80,3 +82,4 @@ class MediaReturnController extends Controller
         return view('media.returns.show', compact('return'));
     }
 }
+

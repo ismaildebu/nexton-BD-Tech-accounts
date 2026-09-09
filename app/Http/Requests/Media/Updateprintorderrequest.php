@@ -30,12 +30,39 @@ class UpdatePrintOrderRequest extends FormRequest
             'vendor_id' => [
                 'nullable',
                 'integer',
-                Rule::exists('vendors', 'id')->where(fn ($q) => $q->where('company_id', $companyId)),
+                Rule::exists('vendors', 'id')
+                    ->where(fn ($q) => $q->where('company_id', $companyId)),
             ],
-            'order_date'       => ['required', 'date'],
-            'print_date'       => ['nullable', 'date', 'after_or_equal:order_date'],
-            'ordered_quantity' => ['required', 'integer', 'min:1'],
-            'notes'            => ['nullable', 'string', 'max:1000'],
+
+            'order_date' => [
+                'required',
+                'date',
+            ],
+
+            'print_date' => [
+                'nullable',
+                'date',
+                'after_or_equal:order_date',
+            ],
+
+            'ordered_quantity' => [
+                'required',
+                'integer',
+                'min:1',
+            ],
+
+            'unit_printing_cost' => [
+                'required',
+                'numeric',
+                'gt:0',
+                'max:999999999.9999',
+            ],
+
+            'notes' => [
+                'nullable',
+                'string',
+                'max:1000',
+            ],
         ];
     }
 }

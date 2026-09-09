@@ -36,6 +36,7 @@ class StorePrintOrderFromPlanRequest extends FormRequest
             ],
             'order_date' => ['required', 'date'],
             'print_date' => ['nullable', 'date', 'after_or_equal:order_date'],
+            'unit_printing_cost' => ['required', 'numeric', 'gt:0', 'max:999999999.9999'],
             'notes'      => ['nullable', 'string', 'max:1000'],
         ];
     }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Exceptions\VoucherValidationException;
+use App\Models\Account;
 use App\Models\Transaction;
 use App\Models\TransactionDetail;
 use Illuminate\Support\Carbon;
@@ -149,9 +150,8 @@ final class VoucherService
     /**
      * Submit a Draft voucher for approval.
      *
-     * Draft -> Submitted
-     *
-     * No Ledger posting occurs here.
+     * Vouchers up to 20,000 are automatically posted.
+     * Vouchers above 20,000 follow the existing approval workflow.
      *
      * @throws VoucherValidationException
      */
@@ -174,6 +174,28 @@ final class VoucherService
             throw new VoucherValidationException(
                 'Voucher must contain at least one transaction detail.'
             );
+        }
+
+        /*
+         * Approval threshold:
+         * <= 20,000 -> Auto post
+         * > 20,000  -> Existing approval workflow
+         */
+        if (
+            bccomp(
+                (string) $transaction->total_debit,
+                '20000.00',
+                2
+            ) <= 0
+        ) {
+            $transaction->update([
+                'status'        => Transaction::STATUS_APPROVED,
+                'approved_by'   => null,
+                'approved_at'   => null,
+                'approval_note' => 'Auto-posted: voucher amount is within the approval threshold.',
+            ]);
+
+            return $this->postApproved($transaction);
         }
 
         $transaction->update([
@@ -308,6 +330,13 @@ final class VoucherService
                 );
             }
 
+            /*
+             * Prevent bank accounts from going below zero.
+             *
+             * This validation happens before Ledger posting.
+             */
+            $this->validateBankBalances($transaction);
+
             $this->ledgerService->post($transaction);
 
             return $transaction->fresh([
@@ -422,6 +451,111 @@ final class VoucherService
     // ---------------------------------------------------------------
     // Private Helpers
     // ---------------------------------------------------------------
+
+    /**
+     * Prevent bank accounts from going into a negative balance.
+     *
+     * For each Bank account:
+     *
+     * Current Balance + Voucher Debit - Voucher Credit
+     * must remain >= 0.
+     *
+     * The Account row is locked while checking the balance so that
+     * concurrent bank withdrawals cannot bypass this validation.
+     *
+     * @throws VoucherValidationException
+     */
+    private function validateBankBalances(
+        Transaction $transaction
+    ): void {
+        $bankDeltas = [];
+
+        foreach ($transaction->details as $detail) {
+            $account = Account::query()
+                ->lockForUpdate()
+                ->find($detail->account_id);
+
+            if (! $account) {
+                continue;
+            }
+
+            if ($account->nature !== Account::NATURE_BANK) {
+                continue;
+            }
+
+            $accountId = (int) $account->id;
+
+            if (! isset($bankDeltas[$accountId])) {
+                $bankDeltas[$accountId] = [
+                    'account' => $account,
+                    'debit'   => 0.0,
+                    'credit'  => 0.0,
+                ];
+            }
+
+            $bankDeltas[$accountId]['debit'] +=
+                (float) ($detail->debit_amount ?? 0);
+
+            $bankDeltas[$accountId]['credit'] +=
+                (float) ($detail->credit_amount ?? 0);
+        }
+
+        foreach ($bankDeltas as $data) {
+            /** @var Account $account */
+            $account = $data['account'];
+
+            /*
+             * Bank accounts are debit-normal:
+             *
+             * Opening Balance
+             * + Total Debit
+             * - Total Credit
+             * = Current Balance
+             *
+             * IMPORTANT:
+             * Use allLedgerEntries() here.
+             *
+             * This includes both the original ledger entry and
+             * its reversal entry when a posted voucher is cancelled.
+             */
+            $currentBalance =
+                (float) ($account->opening_balance ?? 0)
+                + (float) $account->allLedgerEntries()->sum('debit_amount')
+                - (float) $account->allLedgerEntries()->sum('credit_amount');
+
+            $projectedBalance =
+                $currentBalance
+                + $data['debit']
+                - $data['credit'];
+
+            /*
+             * Never allow a bank account to become negative.
+             */
+            if ($projectedBalance < -0.0001) {
+                throw new VoucherValidationException(
+                    sprintf(
+                        'Insufficient bank balance in "%s". Available balance: %s, required withdrawal: %s.',
+                        $account->name,
+                        number_format(
+                            $currentBalance,
+                            2,
+                            '.',
+                            ''
+                        ),
+                        number_format(
+                            max(
+                                0,
+                                $data['credit'] - $data['debit']
+                            ),
+                            2,
+                            '.',
+                            ''
+                        )
+                    )
+                );
+            }
+        }
+    }
 
     /**
      * Calculate total debit and total credit.

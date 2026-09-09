@@ -1,504 +1,1772 @@
 @extends('layouts.app')
 
-@section('title', 'Dashboard')
-@section('page-title', 'Accounting Dashboard')
-@section('page-subtitle', 'Welcome back — here is your financial overview for '.$year)
+@section('title', 'Dashboard — ' . $year)
+
+@section('page-title', 'Dashboard')
+
+@section('page-subtitle', 'Financial overview · FY ' . $year)
 
 @section('content')
-<div class="space-y-6">
+
+    @php
+
+        $currentHour = now()->hour;
+
+        if ($currentHour >= 5 && $currentHour < 12) {
+            $greeting = 'শুভ সকাল';
+            $greetingIcon = '🌅';
+        } elseif ($currentHour >= 12 && $currentHour < 15) {
+            $greeting = 'শুভ দুপুর';
+            $greetingIcon = '☀️';
+        } elseif ($currentHour >= 15 && $currentHour < 18) {
+            $greeting = 'শুভ অপরাহ্ন';
+            $greetingIcon = '🌤️';
+        } else {
+            $greeting = 'শুভ রাত্রি';
+            $greetingIcon = '🌙';
+        }
+
+    @endphp
+
+    <style>
+        .dashboard-bg {
+            background:
+                radial-gradient(circle at 5% 5%, rgba(59, 130, 246, .10), transparent 25%),
+                radial-gradient(circle at 95% 8%, rgba(168, 85, 247, .10), transparent 25%),
+                radial-gradient(circle at 90% 90%, rgba(20, 184, 166, .08), transparent 25%),
+                #f8fafc;
+        }
+
+        .dash-card {
+            background: rgba(255, 255, 255, .94);
+            border: 1px solid rgba(226, 232, 240, .85);
+            box-shadow: 0 8px 30px rgba(15, 23, 42, .055);
+            transition: all .25s ease;
+        }
+
+        .dash-card:hover {
+            box-shadow: 0 14px 38px rgba(15, 23, 42, .09);
+        }
+
+        .kpi-card {
+            position: relative;
+            overflow: hidden;
+            min-height: 190px;
+            border-radius: 24px;
+            color: white;
+            box-shadow: 0 14px 32px rgba(15, 23, 42, .12);
+            transition: transform .25s ease, box-shadow .25s ease;
+        }
+
+        .kpi-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 42px rgba(15, 23, 42, .18);
+        }
+
+        .kpi-card::before {
+            content: "";
+            position: absolute;
+            width: 170px;
+            height: 170px;
+            border-radius: 999px;
+            right: -65px;
+            top: -75px;
+            background: rgba(255,255,255,.12);
+        }
+
+        .kpi-card::after {
+            content: "";
+            position: absolute;
+            width: 120px;
+            height: 120px;
+            border-radius: 999px;
+            left: -55px;
+            bottom: -75px;
+            background: rgba(255,255,255,.08);
+        }
+
+        .kpi-revenue {
+            background: linear-gradient(135deg, #059669 0%, #10b981 48%, #14b8a6 100%);
+        }
+
+        .kpi-profit {
+            background: linear-gradient(135deg, #2563eb 0%, #4f46e5 52%, #7c3aed 100%);
+        }
+
+        .kpi-receivable {
+            background: linear-gradient(135deg, #d97706 0%, #f59e0b 50%, #f97316 100%);
+        }
+
+        .kpi-assets {
+            background: linear-gradient(135deg, #7c3aed 0%, #8b5cf6 50%, #ec4899 100%);
+        }
+
+        .icon-glass {
+            background: rgba(255,255,255,.18);
+            border: 1px solid rgba(255,255,255,.24);
+            backdrop-filter: blur(8px);
+        }
+
+        .section-title {
+            font-size: .9rem;
+            font-weight: 800;
+            color: #0f172a;
+        }
+
+        .section-subtitle {
+            font-size: .7rem;
+            color: #94a3b8;
+            margin-top: 2px;
+        }
+
+        .color-strip {
+            height: 4px;
+            width: 100%;
+        }
+
+        .cash-hero {
+            background:
+                radial-gradient(circle at 15% 20%, rgba(255,255,255,.16), transparent 25%),
+                radial-gradient(circle at 85% 80%, rgba(255,255,255,.14), transparent 28%),
+                linear-gradient(135deg, #0f766e, #0891b2 48%, #2563eb);
+        }
+
+        .mini-account {
+            transition: all .2s ease;
+            border: 1px solid transparent;
+        }
+
+        .mini-account:hover {
+            background: #f8fafc;
+            border-color: #dbeafe;
+            transform: translateX(3px);
+        }
+
+        .transaction-row {
+            transition: all .2s ease;
+        }
+
+        .transaction-row:hover {
+            background: linear-gradient(90deg, #f8fafc, #ffffff);
+            padding-left: 1.35rem;
+        }
+
+        .bank-row {
+            transition: all .2s ease;
+        }
+
+        .bank-row:hover {
+            background: linear-gradient(90deg, #eff6ff, #faf5ff);
+            transform: translateX(3px);
+        }
+
+        .financial-bar {
+            height: 9px;
+            border-radius: 999px;
+            overflow: hidden;
+            background: #f1f5f9;
+        }
+
+        .financial-fill {
+            height: 100%;
+            border-radius: 999px;
+            transition: width .7s ease;
+        }
+
+        .invoice-box {
+            position: relative;
+            overflow: hidden;
+            border-radius: 18px;
+            padding: 18px;
+        }
+
+        .invoice-box::after {
+            content: "";
+            position: absolute;
+            width: 75px;
+            height: 75px;
+            border-radius: 50%;
+            right: -30px;
+            bottom: -35px;
+            background: rgba(255,255,255,.45);
+        }
+
+        .dashboard-header {
+            background:
+                radial-gradient(circle at 90% 20%, rgba(255,255,255,.15), transparent 22%),
+                linear-gradient(135deg, #172554, #1d4ed8 52%, #7c3aed);
+            border-radius: 26px;
+            color: white;
+            padding: 24px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 15px 38px rgba(37, 99, 235, .18);
+        }
+
+        .dashboard-header::before {
+            content: "";
+            position: absolute;
+            width: 210px;
+            height: 210px;
+            border-radius: 50%;
+            background: rgba(255,255,255,.08);
+            right: -70px;
+            top: -110px;
+        }
+
+        .dashboard-header::after {
+            content: "";
+            position: absolute;
+            width: 140px;
+            height: 140px;
+            border-radius: 50%;
+            background: rgba(255,255,255,.06);
+            left: 35%;
+            bottom: -100px;
+        }
+
+        .quick-btn {
+            background: rgba(255,255,255,.15);
+            border: 1px solid rgba(255,255,255,.24);
+            backdrop-filter: blur(8px);
+        }
+
+        .quick-btn:hover {
+            background: rgba(255,255,255,.23);
+        }
+
+        .dashboard-link {
+            text-decoration: none;
+            transition: opacity .2s ease;
+        }
+
+        .dashboard-link:hover {
+            opacity: .82;
+        }
+
+        .balance-link {
+            text-decoration: none;
+            display: inline-block;
+            transition: all .2s ease;
+        }
+
+        .balance-link:hover {
+            text-decoration: underline;
+            text-underline-offset: 3px;
+        }
 
 
-    {{-- ======================= 0. FINANCIAL POSITION CARDS ======================= --}}
-<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+.dashboard-link,
+.balance-link {
+    position: relative;
+    z-index: 50;
+    pointer-events: auto;
+    cursor: pointer;
+    text-decoration: none;
+}
 
-    {{-- মোট সম্পত্তি --}}
-    <div class="rounded-2xl bg-blue-600 text-white p-4 shadow-sm">
-        <p class="text-xs font-medium text-blue-100">মোট সম্পত্তি</p>
-        <p class="mt-1 text-xl font-extrabold">৳{{ number_format($totalAssets, 2) }}</p>
-        <p class="text-xs text-blue-200 mt-1">Total Assets</p>
-    </div>
+.dashboard-link:hover,
+.balance-link:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
 
-    {{-- মোট দায় --}}
-    <div class="rounded-2xl bg-rose-600 text-white p-4 shadow-sm">
-        <p class="text-xs font-medium text-rose-100">মোট দায়</p>
-        <p class="mt-1 text-xl font-extrabold">৳{{ number_format($totalLiabilities, 2) }}</p>
-        <p class="text-xs text-rose-200 mt-1">Total Liabilities</p>
-    </div>
+.kpi-card::before,
+.kpi-card::after {
+    pointer-events: none;
+}
 
-    {{-- দেনাদার --}}
-    <div class="rounded-2xl bg-amber-500 text-white p-4 shadow-sm">
-        <p class="text-xs font-medium text-amber-100">মোট দেনাদার</p>
-        <p class="mt-1 text-xl font-extrabold">৳{{ number_format($totalReceivable, 2) }}</p>
-        <p class="text-xs text-amber-200 mt-1">Total Receivable</p>
-    </div>
+    </style>
 
-    {{-- পাওনাদার --}}
-    <div class="rounded-2xl bg-slate-700 text-white p-4 shadow-sm">
-        <p class="text-xs font-medium text-slate-300">মোট পাওনাদার</p>
-        <p class="mt-1 text-xl font-extrabold">৳{{ number_format($totalPayable, 2) }}</p>
-        <p class="text-xs text-slate-400 mt-1">Total Payable</p>
-    </div>
+    <div class="dashboard-bg rounded-3xl -m-1 p-1 sm:p-2">
 
- {{-- হাতে নগদ --}}
-    <div class="rounded-2xl bg-green-600 text-white p-4 shadow-sm">
-        <p class="text-xs font-medium text-green-100">মোট নগদ</p>
-        <p class="mt-1 text-xl font-extrabold">৳{{ number_format($totalCash, 2) }}</p>
-        <p class="text-xs text-green-200 mt-1">Total Cash</p>
-    </div>
+        <div class="space-y-5 pb-8">
 
-    {{-- ব্যাংক জমা --}}
-    <div class="rounded-2xl bg-blue-600 text-white p-4 shadow-sm">
-        <p class="text-xs font-medium text-blue-100">মোট ব্যাংক</p>
-        <p class="mt-1 text-xl font-extrabold">৳{{ number_format($totalBank, 2) }}</p>
-        <p class="text-xs text-blue-200 mt-1">Total Bank</p>
-    </div>
+            {{-- =========================================================
+                0. COLORFUL DASHBOARD HEADER
+            ========================================================== --}}
 
+            <div class="dashboard-header">
 
-</div>
+                <div class="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
 
+                    <div>
 
+                        <div class="flex items-center gap-3 mb-2">
 
+                            <div class="h-11 w-11 rounded-2xl bg-white/15 border border-white/20 flex items-center justify-center backdrop-blur">
+                                <i class="bi bi-speedometer2 text-xl"></i>
+                            </div>
 
-    {{-- ======================= 1. TOP SUMMARY CARDS ======================= --}}
-    
-    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
+                            <div>
 
-        {{-- Total Revenue --}}
-        <div class="relative overflow-hidden rounded-2xl bg-white shadow-sm border border-slate-100 p-5">
-            <div class="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-emerald-400/10"></div>
-            <div class="flex items-start justify-between">
-                <div>
-                    <p class="text-sm font-medium text-slate-400">Total Revenue</p>
-                    <p class="mt-1 text-2xl font-extrabold text-slate-800">
-                        ৳{{ number_format($totalRevenue, 2) }}
-                    </p>
+                                <p class="text-xs font-semibold text-blue-100 uppercase tracking-wider">
+                                    Financial Dashboard
+                                </p>
+
+                                <h1 class="text-2xl sm:text-3xl font-extrabold leading-tight">
+                                    {{ $greeting }} {{ $greetingIcon }}
+                                </h1>
+
+                            </div>
+
+                        </div>
+
+                        <p class="text-sm text-blue-100">
+                            {{ now()->translatedFormat('l, j F Y') }}
+
+                            <span class="mx-1 opacity-50">•</span>
+
+                            আপনার ব্যবসার বর্তমান আর্থিক চিত্র
+                        </p>
+
+                    </div>
+
+                    <div class="relative z-10 flex flex-wrap items-center gap-2">
+
+                        <form method="GET" action="{{ route('dashboard') }}">
+
+                            <select
+                                name="year"
+                                onchange="this.form.submit()"
+                                class="bg-white/95 border-0 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-lg focus:outline-none focus:ring-2 focus:ring-white cursor-pointer">
+
+                                @foreach(range(now()->year, now()->year - 4) as $y)
+
+                                    <option value="{{ $y }}" {{ $y == $year ? 'selected' : '' }}>
+                                        FY {{ $y }}
+                                    </option>
+
+                                @endforeach
+
+                            </select>
+
+                        </form>
+
+                        @can('vouchers.create')
+
+                            <a
+                                href="{{ route('vouchers.create') }}"
+                                class="quick-btn inline-flex items-center gap-2 text-white text-sm font-bold px-4 py-2.5 rounded-xl shadow-lg transition-all">
+
+                                <i class="bi bi-plus-lg"></i>
+
+                                নতুন ভাউচার
+
+                            </a>
+
+                        @endcan
+
+                    </div>
+
                 </div>
-                <span class="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-emerald-500 text-white shadow-lg shadow-emerald-500/30">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V6m0 10v-2"/>
-                    </svg>
-                </span>
-            </div>
-            <div class="mt-4 h-14"><canvas id="chart-revenue"></canvas></div>
-        </div>
 
-        {{-- Total Expenses --}}
-        <div class="relative overflow-hidden rounded-2xl bg-white shadow-sm border border-slate-100 p-5">
-            <div class="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-rose-400/10"></div>
-            <div class="flex items-start justify-between">
-                <div>
-                    <p class="text-sm font-medium text-slate-400">Total Expenses</p>
-                    <p class="mt-1 text-2xl font-extrabold text-slate-800">
-                        ৳{{ number_format($totalExpenses, 2) }}
-                    </p>
+            </div>
+
+
+            {{-- =========================================================
+                1. KPI CARDS
+            ========================================================== --}}
+
+            <div class="grid grid-cols-2 xl:grid-cols-4 gap-4">
+
+                {{-- Revenue --}}
+
+                <div class="kpi-card kpi-revenue p-5">
+
+                    <div class="relative z-10">
+
+                        <div class="flex items-start justify-between mb-5">
+
+                            <div class="h-12 w-12 rounded-2xl icon-glass flex items-center justify-center">
+                                <i class="bi bi-graph-up-arrow text-xl"></i>
+                            </div>
+
+                            <span class="text-[11px] font-bold bg-white/15 border border-white/20 px-3 py-1.5 rounded-full">
+                                FY {{ $year }}
+                            </span>
+
+                        </div>
+
+                        <p class="text-xs font-semibold text-emerald-50 mb-1">
+                            মোট রাজস্ব
+                        </p>
+
+                        <p class="text-2xl sm:text-3xl font-extrabold leading-none">
+
+                            <a
+                                href="{{ route('profit-loss.index') }}"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="dashboard-link text-white">
+
+                                ৳{{ number_format($totalRevenue, 0) }}
+
+                            </a>
+
+                        </p>
+
+                        <p class="text-xs text-emerald-100 mt-3">
+                            খরচ: ৳{{ number_format($totalExpenses, 0) }}
+                        </p>
+
+                    </div>
+
                 </div>
-                <span class="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-rose-500 text-white shadow-lg shadow-rose-500/30">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M17 9V7a4 4 0 00-8 0v2M5 9h14l-1 11H6L5 9z"/>
-                    </svg>
-                </span>
-            </div>
-            <div class="mt-4 h-14"><canvas id="chart-expenses"></canvas></div>
-        </div>
 
-        {{-- Net Profit --}}
-        <div class="relative overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 via-fuchsia-600 to-indigo-700 shadow-lg shadow-violet-500/30 p-5 text-white">
-            <div class="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-white/10"></div>
-            <div class="flex items-start justify-between">
-                <div>
-                    <p class="text-sm font-medium text-violet-100/90">Net Profit</p>
-                    <p class="mt-1 text-2xl font-extrabold">
-                        ৳{{ number_format($netProfit, 2) }}
-                    </p>
+
+                {{-- Profit --}}
+
+                <div class="kpi-card kpi-profit p-5">
+
+                    <div class="relative z-10">
+
+                        <div class="flex items-start justify-between mb-5">
+
+                            <div class="h-12 w-12 rounded-2xl icon-glass flex items-center justify-center">
+                                <i class="bi bi-currency-dollar text-xl"></i>
+                            </div>
+
+                            <span class="text-[11px] font-bold bg-white/15 border border-white/20 px-3 py-1.5 rounded-full">
+                                {{ $netProfit >= 0 ? 'লাভ' : 'ক্ষতি' }}
+                            </span>
+
+                        </div>
+
+                        <p class="text-xs font-semibold text-blue-100 mb-1">
+                            নিট মুনাফা
+                        </p>
+
+                        <p class="text-2xl sm:text-3xl font-extrabold leading-none">
+
+                            <a
+                                href="{{ route('profit-loss.index') }}"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="dashboard-link text-white">
+
+                                ৳{{ number_format(abs($netProfit), 0) }}
+
+                            </a>
+
+                        </p>
+
+                        <p class="text-xs text-blue-100 mt-3">
+                            Revenue − Expense
+                        </p>
+
+                    </div>
+
                 </div>
-                <span class="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-white/15 backdrop-blur text-white">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-9 9-4-4-6 6"/>
-                    </svg>
-                </span>
-            </div>
-            <div class="mt-4 h-14"><canvas id="chart-profit"></canvas></div>
-        </div>
 
-        {{-- Pending Invoices --}}
-        <div class="relative overflow-hidden rounded-2xl bg-white shadow-sm border border-slate-100 p-5">
-            <div class="flex items-start justify-between">
-                <div>
-                    <p class="text-sm font-medium text-slate-400">Pending Invoices</p>
-                    <p class="mt-1 text-2xl font-extrabold text-slate-800">{{ $pendingTotalCount }}</p>
+
+                {{-- Receivable --}}
+
+                <div class="kpi-card kpi-receivable p-5">
+
+                    <div class="relative z-10">
+
+                        <div class="flex items-start justify-between mb-5">
+
+                            <div class="h-12 w-12 rounded-2xl icon-glass flex items-center justify-center">
+                                <i class="bi bi-clock-history text-xl"></i>
+                            </div>
+
+                            @if($pendingOverdueCount > 0)
+
+                                <span class="text-[11px] font-bold bg-white/15 border border-white/20 px-3 py-1.5 rounded-full">
+                                    {{ $pendingOverdueCount }} overdue
+                                </span>
+
+                            @endif
+
+                        </div>
+
+                        <p class="text-xs font-semibold text-amber-50 mb-1">
+                            বকেয়া পাওনা (AR)
+                        </p>
+
+                        <p class="text-2xl sm:text-3xl font-extrabold leading-none">
+
+                            <a
+                                href="{{ route('customers.index') }}"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="dashboard-link text-white">
+
+                                ৳{{ number_format($totalReceivable, 0) }}
+
+                            </a>
+
+                        </p>
+
+                        <p class="text-xs text-amber-100 mt-3">
+                            মোট {{ $pendingTotalCount }}টি অপরিশোধিত
+                        </p>
+
+                    </div>
+
                 </div>
-                <span class="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-amber-400 text-white shadow-lg shadow-amber-400/30">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3A9 9 0 113 12a9 9 0 0118 0z"/>
-                    </svg>
-                </span>
-            </div>
-            <div class="mt-2 flex items-center gap-4">
-                <div class="h-20 w-20 shrink-0"><canvas id="chart-pending"></canvas></div>
-                <div class="text-xs space-y-1.5">
-                    <p class="flex items-center gap-2">
-                        <span class="h-2.5 w-2.5 rounded-full bg-rose-500"></span>
-                        Overdue <span class="font-semibold text-slate-700">{{ $pendingOverdueCount }}</span>
-                    </p>
-                    <p class="flex items-center gap-2">
-                        <span class="h-2.5 w-2.5 rounded-full bg-cyan-500"></span>
-                        Due <span class="font-semibold text-slate-700">{{ $pendingDueCount }}</span>
-                    </p>
+
+
+                {{-- Assets --}}
+
+                <div class="kpi-card kpi-assets p-5">
+
+                    <div class="relative z-10">
+
+                        <div class="flex items-start justify-between mb-5">
+
+                            <div class="h-12 w-12 rounded-2xl icon-glass flex items-center justify-center">
+                                <i class="bi bi-bank2 text-xl"></i>
+                            </div>
+
+                            <span class="text-[11px] font-bold bg-white/15 border border-white/20 px-3 py-1.5 rounded-full">
+                                Balance Sheet
+                            </span>
+
+                        </div>
+
+                        <p class="text-xs font-semibold text-purple-100 mb-1">
+                            মোট সম্পদ
+                        </p>
+
+                        <p class="text-2xl sm:text-3xl font-extrabold leading-none">
+
+                            <a
+                                href="{{ route('balance-sheet.index') }}"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="dashboard-link text-white">
+
+                                ৳{{ number_format($totalAssets, 0) }}
+
+                            </a>
+
+                        </p>
+
+                        <p class="text-xs text-purple-100 mt-3">
+                            দায়: ৳{{ number_format($totalLiabilities, 0) }}
+                        </p>
+
+                    </div>
+
                 </div>
+
             </div>
-        </div>
-    </div>
 
-    {{-- ======================= 2. MIDDLE SECTION CHARTS ======================= --}}
-    <div class="grid grid-cols-1 xl:grid-cols-3 gap-5">
 
-        {{-- Revenue vs Expenses --}}
-        <div class="xl:col-span-2 rounded-2xl bg-white shadow-sm border border-slate-100 p-5">
-            <div class="flex items-center justify-between mb-3">
-                <h3 class="font-bold text-slate-700">Revenue vs. Expenses</h3>
-                <span class="text-xs font-medium text-slate-400">Jan – Dec {{ $year }}</span>
+            {{-- =========================================================
+                2. REVENUE CHART + CASH & BANK
+            ========================================================== --}}
+
+            <div class="grid grid-cols-1 xl:grid-cols-3 gap-5">
+
+                {{-- Revenue chart --}}
+
+                <div class="xl:col-span-2 dash-card rounded-3xl overflow-hidden">
+
+                    <div class="color-strip bg-gradient-to-r from-blue-500 via-violet-500 to-emerald-500"></div>
+
+                    <div class="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-slate-100">
+
+                        <div class="flex items-center gap-3">
+
+                            <div class="h-10 w-10 rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 text-white flex items-center justify-center shadow-md">
+                                <i class="bi bi-bar-chart-line-fill"></i>
+                            </div>
+
+                            <div>
+
+                                <h3 class="section-title">
+                                    রাজস্ব বনাম খরচ
+                                </h3>
+
+                                <p class="section-subtitle">
+                                    মাসভিত্তিক আর্থিক তুলনা — {{ $year }}
+                                </p>
+
+                            </div>
+
+                        </div>
+
+                        <div class="flex items-center gap-3 text-[11px]">
+
+                            <span class="flex items-center gap-1.5">
+                                <span class="w-3 h-2 rounded-full bg-emerald-500"></span>
+                                <span class="text-slate-500">রাজস্ব</span>
+                            </span>
+
+                            <span class="flex items-center gap-1.5">
+                                <span class="w-3 h-2 rounded-full bg-red-400"></span>
+                                <span class="text-slate-500">খরচ</span>
+                            </span>
+
+                            <span class="flex items-center gap-1.5">
+                                <span class="w-3 h-2 rounded-full bg-blue-500"></span>
+                                <span class="text-slate-500">মুনাফা</span>
+                            </span>
+
+                        </div>
+
+                    </div>
+
+                    <div class="p-5">
+
+                        <div style="position:relative;height:245px">
+                            <canvas id="revenueChart"></canvas>
+                        </div>
+
+                    </div>
+
+                </div>
+
+
+                {{-- Cash & Bank --}}
+
+                <div class="dash-card rounded-3xl overflow-hidden">
+
+                    <div class="color-strip bg-gradient-to-r from-teal-400 via-cyan-500 to-blue-500"></div>
+
+                    <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+
+                        <div class="flex items-center gap-3">
+
+                            <div class="h-10 w-10 rounded-xl bg-gradient-to-br from-teal-500 to-cyan-600 text-white flex items-center justify-center shadow-md">
+                                <i class="bi bi-wallet2"></i>
+                            </div>
+
+                            <div>
+
+                                <h3 class="section-title">
+                                    Cash & Bank
+                                </h3>
+
+                                <p class="section-subtitle">
+                                    Chart of Accounts ভিত্তিক
+                                </p>
+
+                            </div>
+
+                        </div>
+
+                        <a
+                            href="{{ route('bank-accounts.index') }}"
+                            class="text-xs font-bold text-cyan-600 hover:text-cyan-700">
+
+                            সব দেখুন →
+
+                        </a>
+
+                    </div>
+
+                    <div class="p-5">
+
+                        <div class="cash-hero rounded-2xl text-white p-5 mb-4 shadow-lg">
+
+                            <div class="flex items-center justify-between">
+
+                                <div>
+
+                                    <p class="text-xs text-cyan-100">
+                                        মোট তরল সম্পদ
+                                    </p>
+
+                                    <p class="text-3xl font-extrabold mt-1">
+
+                                        <a
+                                            href="{{ route('bank-accounts.index') }}"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            class="dashboard-link text-white">
+
+                                            ৳{{ number_format($totalCash + $totalBank, 0) }}
+
+                                        </a>
+
+                                    </p>
+
+                                </div>
+
+                                <div class="h-12 w-12 rounded-2xl bg-white/15 border border-white/20 flex items-center justify-center">
+                                    <i class="bi bi-cash-stack text-xl"></i>
+                                </div>
+
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-3 mt-5">
+
+                                <div class="bg-white/10 rounded-xl px-3 py-2 border border-white/10">
+
+                                    <p class="text-[10px] text-cyan-100">
+                                        নগদ
+                                    </p>
+
+                                    <p class="text-sm font-extrabold">
+
+                                        <a
+                                            href="{{ route('ledger.index') }}"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            class="dashboard-link text-white">
+
+                                            ৳{{ number_format($totalCash, 0) }}
+
+                                        </a>
+
+                                    </p>
+
+                                </div>
+
+                                <div class="bg-white/10 rounded-xl px-3 py-2 border border-white/10">
+
+                                    <p class="text-[10px] text-cyan-100">
+                                        ব্যাংক
+                                    </p>
+
+                                    <p class="text-sm font-extrabold">
+
+                                        <a
+                                            href="{{ route('bank-accounts.index') }}"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            class="dashboard-link text-white">
+
+                                            ৳{{ number_format($totalBank, 0) }}
+
+                                        </a>
+
+                                    </p>
+
+                                </div>
+
+                            </div>
+
+                        </div>
+
+
+                        <div class="space-y-1">
+
+                            @forelse($cashBankDetails->take(5) as $acct)
+
+                                <div class="mini-account flex items-center gap-3 p-2.5 rounded-xl">
+
+                                    <div class="h-9 w-9 rounded-xl flex items-center justify-center text-xs font-extrabold flex-shrink-0
+                                        {{ $acct->nature === 'Bank'
+                                            ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white'
+                                            : 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white' }}">
+
+                                        {{ strtoupper(substr($acct->name, 0, 2)) }}
+
+                                    </div>
+
+                                    <div class="flex-1 min-w-0">
+
+                                        <p class="text-xs font-bold text-slate-700 truncate">
+                                            {{ $acct->name }}
+                                        </p>
+
+                                        <p class="text-[10px] text-slate-400">
+                                            {{ $acct->nature }}
+                                        </p>
+
+                                    </div>
+
+                                    <p class="text-sm font-extrabold flex-shrink-0
+                                        {{ $acct->balance >= 0 ? 'text-emerald-600' : 'text-red-500' }}">
+
+                                        @if($acct->nature === 'Bank')
+
+                                            <a
+                                                href="{{ route('bank-accounts.index') }}"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                class="balance-link {{ $acct->balance >= 0 ? 'text-emerald-600' : 'text-red-500' }}">
+
+                                                ৳{{ number_format($acct->balance, 0) }}
+
+                                            </a>
+
+                                        @else
+
+                                            <a
+                                                href="{{ route('ledger.index') }}"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                class="balance-link {{ $acct->balance >= 0 ? 'text-emerald-600' : 'text-red-500' }}">
+
+                                                ৳{{ number_format($acct->balance, 0) }}
+
+                                            </a>
+
+                                        @endif
+
+                                    </p>
+
+                                </div>
+
+                            @empty
+
+                                <div class="py-6 text-center">
+
+                                    <i class="bi bi-wallet2 text-3xl text-slate-300"></i>
+
+                                    <p class="text-xs text-slate-400 mt-2">
+                                        কোনো Cash / Bank account নেই
+                                    </p>
+
+                                </div>
+
+                            @endforelse
+
+                        </div>
+
+                    </div>
+
+                </div>
+
             </div>
-            <div class="h-72"><canvas id="chart-revenue-vs-expenses"></canvas></div>
-        </div>
 
-        {{-- Top Expense Categories --}}
-        <div class="rounded-2xl bg-white shadow-sm border border-slate-100 p-5">
-            <h3 class="font-bold text-slate-700 mb-3">Top Expense Categories</h3>
-            <div class="h-56"><canvas id="chart-expense-categories"></canvas></div>
-            <div class="mt-4 grid grid-cols-2 gap-2 text-xs text-slate-500">
-                @foreach($expenseCategories as $label => $value)
-                    <p class="flex items-center gap-2">
-                        <span class="h-2.5 w-2.5 rounded-full"
-                              style="background:{{ ['#8b5cf6','#f59e0b','#06b6d4','#64748b'][$loop->index % 4] }}"></span>
-                        {{ $label }}
-                    </p>
-                @endforeach
-            </div>
-        </div>
-    </div>
 
-    {{-- Cash Flow --}}
-    <div class="rounded-2xl bg-white shadow-sm border border-slate-100 p-5">
-        <div class="flex items-center justify-between mb-3">
-            <h3 class="font-bold text-slate-700">Cash Flow Trend</h3>
-            <div class="flex items-center gap-4 text-xs font-medium">
-                <span class="flex items-center gap-1.5 text-cyan-600">
-                    <span class="h-2.5 w-2.5 rounded-full bg-cyan-500"></span>Inflows
-                </span>
-                <span class="flex items-center gap-1.5 text-rose-600">
-                    <span class="h-2.5 w-2.5 rounded-full bg-rose-500"></span>Outflows
-                </span>
-            </div>
-        </div>
-        <div class="h-64"><canvas id="chart-cashflow"></canvas></div>
-    </div>
+            {{-- =========================================================
+                3. EXPENSE + FINANCIAL POSITION + INVOICE
+            ========================================================== --}}
 
-    {{-- ======================= 3. BOTTOM SECTION TABLES ======================= --}}
-    <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
 
-        {{-- Bank Balance Summary --}}
-        <div class="rounded-2xl bg-white shadow-sm border border-slate-100 p-5">
-            <h3 class="font-bold text-slate-700 mb-4">Bank Balance Summary</h3>
-            <div class="overflow-x-auto">
-                <table class="w-full text-sm">
-                    <thead>
-                        <tr class="text-left text-slate-400 text-xs uppercase tracking-wider">
-                            <th class="pb-3 font-medium">Bank Account</th>
-                            <th class="pb-3 font-medium">Balance</th>
-                            <th class="pb-3 font-medium">Trend</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        @forelse($bankAccounts as $account)
-                            <tr>
-                                <td class="py-3">
-                                    <p class="font-semibold text-slate-700">{{ $account->account_name }}</p>
-                                    <p class="text-xs text-slate-400">{{ $account->bank_name }}</p>
-                                </td>
-                                <td class="py-3 font-semibold text-slate-700">
-                                    ৳{{ number_format($account->balance, 2) }}
-                                </td>
-                                <td class="py-3">
-                                    <canvas class="sparkline"
-                                            data-values="{{ json_encode($account->sparkline) }}"
-                                            width="100" height="30"></canvas>
-                                </td>
-                            </tr>
-                        @empty
-                            <tr>
-                                <td colspan="3" class="py-6 text-center text-slate-400">
-                                    No bank accounts found.
-                                </td>
-                            </tr>
-                        @endforelse
-                    </tbody>
-                </table>
-            </div>
-        </div>
+                {{-- Expense --}}
 
-        {{-- Recent Activity --}}
-        <div class="rounded-2xl bg-white shadow-sm border border-slate-100 p-5">
-            <h3 class="font-bold text-slate-700 mb-4">Recent Activity</h3>
-            <div class="overflow-x-auto">
-                <table class="w-full text-sm">
-                    <thead>
-                        <tr class="text-left text-slate-400 text-xs uppercase tracking-wider">
-                            <th class="pb-3 font-medium">Date</th>
-                            <th class="pb-3 font-medium">Type</th>
-                            <th class="pb-3 font-medium text-right">Amount</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        @forelse($recentActivity as $activity)
-                            <tr>
-                                <td class="py-3 text-slate-500">
-                                    {{ \Carbon\Carbon::parse($activity->date)->format('d M, Y') }}
-                                </td>
-                                <td class="py-3">
-                                    <p class="font-semibold text-slate-700">{{ $activity->ref }}</p>
-                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
-                                        {{ $activity->type === 'Credit' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600' }}">
-                                        {{ $activity->type }}
+                <div class="dash-card rounded-3xl overflow-hidden">
+
+                    <div class="color-strip bg-gradient-to-r from-orange-400 via-amber-500 to-red-500"></div>
+
+                    <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+
+                        <div class="flex items-center gap-3">
+
+                            <div class="h-10 w-10 rounded-xl bg-gradient-to-br from-orange-500 to-red-500 text-white flex items-center justify-center shadow-md">
+                                <i class="bi bi-pie-chart-fill"></i>
+                            </div>
+
+                            <div>
+
+                                <h3 class="section-title">
+                                    খরচের বিভাজন
+                                </h3>
+
+                                <p class="section-subtitle">
+                                    Expense distribution
+                                </p>
+
+                            </div>
+
+                        </div>
+
+                        <span class="text-[10px] font-bold text-orange-700 bg-orange-100 border border-orange-200 px-2.5 py-1 rounded-full">
+                            {{ $year }}
+                        </span>
+
+                    </div>
+
+                    <div class="p-5">
+
+                        <div style="position:relative;height:175px">
+                            <canvas id="expenseDonut"></canvas>
+                        </div>
+
+                        @php
+
+                            $palette = [
+                                '#10B981',
+                                '#3B82F6',
+                                '#8B5CF6',
+                                '#F59E0B',
+                                '#EF4444',
+                                '#6366F1',
+                                '#EC4899',
+                                '#14B8A6',
+                            ];
+
+                            $expTotal = array_sum($expenseCategories);
+                            $ci = 0;
+
+                        @endphp
+
+                        <div class="mt-5 space-y-2.5">
+
+                            @foreach(array_slice($expenseCategories, 0, 5, true) as $cat => $amt)
+
+                                <div class="flex items-center gap-2">
+
+                                    <span
+                                        class="w-3 h-3 rounded-md flex-shrink-0 shadow-sm"
+                                        style="background:{{ $palette[$ci] ?? '#94A3B8' }}">
                                     </span>
-                                </td>
-                                <td class="py-3 text-right font-semibold
-                                    {{ $activity->type === 'Credit' ? 'text-emerald-600' : 'text-rose-600' }}">
-                                    {{ $activity->type === 'Credit' ? '+' : '-' }}৳{{ number_format($activity->amount, 2) }}
-                                </td>
-                            </tr>
-                        @empty
-                            <tr>
-                                <td colspan="3" class="py-6 text-center text-slate-400">
-                                    No recent activity.
-                                </td>
-                            </tr>
-                        @endforelse
-                    </tbody>
-                </table>
+
+                                    <span class="text-xs text-slate-600 flex-1 truncate">
+                                        {{ $cat }}
+                                    </span>
+
+                                    <span class="text-xs font-extrabold text-slate-700">
+                                        {{ $expTotal > 0 ? number_format(($amt / $expTotal) * 100, 0) : 0 }}%
+                                    </span>
+
+                                </div>
+
+                                @php $ci++ @endphp
+
+                            @endforeach
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+
+                {{-- Financial Position --}}
+
+                <div class="dash-card rounded-3xl overflow-hidden">
+
+                    <div class="color-strip bg-gradient-to-r from-violet-500 via-purple-500 to-fuchsia-500"></div>
+
+                    <div class="px-5 py-4 border-b border-slate-100">
+
+                        <div class="flex items-center gap-3">
+
+                            <div class="h-10 w-10 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-600 text-white flex items-center justify-center shadow-md">
+                                <i class="bi bi-graph-up"></i>
+                            </div>
+
+                            <div>
+
+                                <h3 class="section-title">
+                                    আর্থিক অবস্থান
+                                </h3>
+
+                                <p class="section-subtitle">
+                                    Assets = Liabilities + Equity
+                                </p>
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                    <div class="p-5 space-y-5">
+
+                        @php
+
+                            $finItems = [
+
+                                [
+                                    'label' => 'মোট সম্পদ',
+                                    'val' => $totalAssets,
+                                    'color' => 'bg-gradient-to-r from-blue-500 to-cyan-500',
+                                    'icon' => 'bi-building',
+                                    'iconBg' => 'bg-blue-100 text-blue-600'
+                                ],
+
+                                [
+                                    'label' => 'মোট দায়',
+                                    'val' => $totalLiabilities,
+                                    'color' => 'bg-gradient-to-r from-red-400 to-rose-500',
+                                    'icon' => 'bi-exclamation-circle',
+                                    'iconBg' => 'bg-red-100 text-red-600'
+                                ],
+
+                                [
+                                    'label' => 'মূলধন',
+                                    'val' => $totalEquity,
+                                    'color' => 'bg-gradient-to-r from-violet-500 to-purple-600',
+                                    'icon' => 'bi-shield-check',
+                                    'iconBg' => 'bg-purple-100 text-purple-600'
+                                ],
+
+                                [
+                                    'label' => 'দেনাদার (AR)',
+                                    'val' => $totalReceivable,
+                                    'color' => 'bg-gradient-to-r from-amber-400 to-orange-500',
+                                    'icon' => 'bi-arrow-right-circle',
+                                    'iconBg' => 'bg-amber-100 text-amber-600'
+                                ],
+
+                                [
+                                    'label' => 'পাওনাদার (AP)',
+                                    'val' => $totalPayable,
+                                    'color' => 'bg-gradient-to-r from-slate-400 to-slate-500',
+                                    'icon' => 'bi-arrow-left-circle',
+                                    'iconBg' => 'bg-slate-100 text-slate-600'
+                                ],
+
+                            ];
+
+                            $maxVal = max(array_column($finItems, 'val') ?: [1]);
+
+                        @endphp
+
+                        @foreach($finItems as $item)
+
+                            <div>
+
+                                <div class="flex items-center gap-2 mb-2">
+
+                                    <div class="h-7 w-7 rounded-lg {{ $item['iconBg'] }} flex items-center justify-center">
+
+                                        <i class="bi {{ $item['icon'] }} text-xs"></i>
+
+                                    </div>
+
+                                    <span class="text-xs font-medium text-slate-600 flex-1">
+                                        {{ $item['label'] }}
+                                    </span>
+
+                                    <span class="text-xs font-extrabold text-slate-800">
+
+                                        <a
+                                            href="{{ route('ledger.index') }}"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            class="balance-link text-slate-800">
+
+                                            ৳{{ number_format($item['val'], 0) }}
+
+                                        </a>
+
+                                    </span>
+
+                                </div>
+
+                                <div class="financial-bar">
+
+                                    <div
+                                        class="financial-fill {{ $item['color'] }}"
+                                        style="width:{{ $maxVal > 0 ? min(100, ($item['val'] / $maxVal) * 100) : 0 }}%">
+                                    </div>
+
+                                </div>
+
+                            </div>
+
+                        @endforeach
+
+                    </div>
+
+                </div>
+
+
+                {{-- Invoice --}}
+
+                <div class="dash-card rounded-3xl overflow-hidden">
+
+                    <div class="color-strip bg-gradient-to-r from-red-500 via-orange-500 to-amber-400"></div>
+
+                    <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+
+                        <div class="flex items-center gap-3">
+
+                            <div class="h-10 w-10 rounded-xl bg-gradient-to-br from-red-500 to-orange-500 text-white flex items-center justify-center shadow-md">
+                                <i class="bi bi-receipt-cutoff"></i>
+                            </div>
+
+                            <div>
+
+                                <h3 class="section-title">
+                                    Invoice অবস্থা
+                                </h3>
+
+                                <p class="section-subtitle">
+                                    Receivable monitoring
+                                </p>
+
+                            </div>
+
+                        </div>
+
+                        <a
+                            href="{{ route('invoices.index') }}"
+                            class="text-xs font-bold text-blue-600 hover:text-blue-700">
+
+                            সব দেখুন →
+
+                        </a>
+
+                    </div>
+
+                    <div class="p-5">
+
+                        <div class="grid grid-cols-2 gap-3">
+
+                            <div class="invoice-box bg-gradient-to-br from-red-50 to-rose-100 border border-red-100">
+
+                                <a
+                                    href="{{ route('invoices.index') }}"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="dashboard-link">
+
+                                    <div class="relative z-10">
+
+                                        <p class="text-3xl font-extrabold text-red-600">
+                                            {{ $pendingOverdueCount }}
+                                        </p>
+
+                                        <p class="text-xs font-bold text-red-500 mt-1">
+                                            Overdue
+                                        </p>
+
+                                    </div>
+
+                                </a>
+
+                            </div>
+
+                            <div class="invoice-box bg-gradient-to-br from-amber-50 to-orange-100 border border-amber-100">
+
+                                <a
+                                    href="{{ route('invoices.index') }}"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="dashboard-link">
+
+                                    <div class="relative z-10">
+
+                                        <p class="text-3xl font-extrabold text-amber-600">
+                                            {{ $pendingDueCount }}
+                                        </p>
+
+                                        <p class="text-xs font-bold text-amber-500 mt-1">
+                                            Due Soon
+                                        </p>
+
+                                    </div>
+
+                                </a>
+
+                            </div>
+
+                        </div>
+
+                        @php
+
+                            $totalInvoices = max($pendingTotalCount + 50, 1);
+
+                            $collPct = $totalRevenue + $totalReceivable > 0
+                                ? round(($totalRevenue / ($totalRevenue + $totalReceivable)) * 100)
+                                : 0;
+
+                            $overduePct = round(
+                                ($pendingOverdueCount / $totalInvoices) * 100
+                            );
+
+                        @endphp
+
+                        <div class="mt-6 space-y-5">
+
+                            <div>
+
+                                <div class="flex justify-between items-center text-xs mb-2">
+
+                                    <span class="font-medium text-slate-500">
+                                        সংগ্রহের হার
+                                    </span>
+
+                                    <span class="font-extrabold text-emerald-600">
+                                        {{ $collPct }}%
+                                    </span>
+
+                                </div>
+
+                                <div class="financial-bar">
+
+                                    <div
+                                        class="financial-fill bg-gradient-to-r from-emerald-400 to-green-600"
+                                        style="width:{{ $collPct }}%">
+                                    </div>
+
+                                </div>
+
+                            </div>
+
+                            <div>
+
+                                <div class="flex justify-between items-center text-xs mb-2">
+
+                                    <span class="font-medium text-slate-500">
+                                        বকেয়া হার
+                                    </span>
+
+                                    <span class="font-extrabold text-red-600">
+                                        {{ $pendingTotalCount }}টি
+                                    </span>
+
+                                </div>
+
+                                <div class="financial-bar">
+
+                                    <div
+                                        class="financial-fill bg-gradient-to-r from-red-400 to-rose-600"
+                                        style="width:{{ min(100, $overduePct) }}%">
+                                    </div>
+
+                                </div>
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
             </div>
+
+
+            {{-- =========================================================
+                4. RECENT TRANSACTIONS + BANK ACCOUNTS
+            ========================================================== --}}
+
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+
+                {{-- Recent Transactions --}}
+
+                <div class="dash-card rounded-3xl overflow-hidden">
+
+                    <div class="color-strip bg-gradient-to-r from-slate-700 via-blue-600 to-violet-600"></div>
+
+                    <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+
+                        <div class="flex items-center gap-3">
+
+                            <div class="h-10 w-10 rounded-xl bg-gradient-to-br from-slate-700 to-blue-600 text-white flex items-center justify-center shadow-md">
+                                <i class="bi bi-arrow-left-right"></i>
+                            </div>
+
+                            <div>
+
+                                <h3 class="section-title">
+                                    সাম্প্রতিক লেনদেন
+                                </h3>
+
+                                <p class="section-subtitle">
+                                    সর্বশেষ ৮টি Ledger Entry
+                                </p>
+
+                            </div>
+
+                        </div>
+
+                        <a
+                            href="{{ route('ledger.index') }}"
+                            class="text-xs font-bold text-blue-600 hover:text-blue-700">
+
+                            সব দেখুন →
+
+                        </a>
+
+                    </div>
+
+                    <div class="divide-y divide-slate-100">
+
+                        @forelse($recentActivity as $txn)
+
+                            <div class="transaction-row flex items-center gap-3 px-5 py-3.5">
+
+                                <div class="h-10 w-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm
+                                    {{ $txn->type === 'Credit'
+                                        ? 'bg-gradient-to-br from-emerald-400 to-green-600 text-white'
+                                        : 'bg-gradient-to-br from-red-400 to-rose-600 text-white' }}">
+
+                                    <i class="bi
+                                        {{ $txn->type === 'Credit'
+                                            ? 'bi-arrow-down-left'
+                                            : 'bi-arrow-up-right' }}">
+                                    </i>
+
+                                </div>
+
+                                <div class="flex-1 min-w-0">
+
+                                    <p class="text-xs font-extrabold text-slate-700 truncate">
+                                        {{ $txn->ref }}
+                                    </p>
+
+                                    <p class="text-[10px] text-slate-400 mt-0.5">
+
+                                        {{ \Carbon\Carbon::parse($txn->date)->format('d M Y') }}
+
+                                        @if($txn->desc)
+
+                                            <span class="mx-1">•</span>
+
+                                            {{ Str::limit($txn->desc, 30) }}
+
+                                        @endif
+
+                                    </p>
+
+                                </div>
+
+                                <p class="text-sm font-extrabold flex-shrink-0
+                                    {{ $txn->type === 'Credit'
+                                        ? 'text-emerald-600'
+                                        : 'text-red-500' }}">
+
+                                    <a
+                                        href="{{ route('ledger.index') }}"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        class="balance-link {{ $txn->type === 'Credit'
+                                            ? 'text-emerald-600'
+                                            : 'text-red-500' }}">
+
+                                        {{ $txn->type === 'Credit' ? '+' : '−' }}৳{{ number_format($txn->amount, 0) }}
+
+                                    </a>
+
+                                </p>
+
+                            </div>
+
+                        @empty
+
+                            <div class="px-5 py-12 text-center">
+
+                                <div class="h-14 w-14 mx-auto rounded-2xl bg-slate-100 flex items-center justify-center">
+                                    <i class="bi bi-inbox text-2xl text-slate-300"></i>
+                                </div>
+
+                                <p class="text-sm text-slate-400 mt-3">
+                                    কোনো লেনদেন নেই
+                                </p>
+
+                            </div>
+
+                        @endforelse
+
+                    </div>
+
+                </div>
+
+
+                {{-- Bank Accounts --}}
+
+                <div class="dash-card rounded-3xl overflow-hidden">
+
+                    <div class="color-strip bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-600"></div>
+
+                    <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+
+                        <div class="flex items-center gap-3">
+
+                            <div class="h-10 w-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center shadow-md">
+                                <i class="bi bi-bank2"></i>
+                            </div>
+
+                            <div>
+
+                                <h3 class="section-title">
+                                    Bank Accounts
+                                </h3>
+
+                                <p class="section-subtitle">
+                                    সক্রিয় ব্যাংক হিসাব সমূহ
+                                </p>
+
+                            </div>
+
+                        </div>
+
+                        <a
+                            href="{{ route('bank-accounts.index') }}"
+                            class="text-xs font-bold text-blue-600 hover:text-blue-700">
+
+                            সব দেখুন →
+
+                        </a>
+
+                    </div>
+
+                    <div class="p-5">
+
+                        @forelse($bankAccounts as $bank)
+
+                            <div class="bank-row flex items-center gap-3 p-3.5 rounded-2xl mb-2 last:mb-0">
+
+                                <div class="h-11 w-11 rounded-2xl bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 text-white flex items-center justify-center text-xs font-extrabold flex-shrink-0 shadow-md">
+
+                                    {{ strtoupper(substr(
+                                        $bank->bank_name
+                                            ?? $bank->account_name
+                                            ?? 'B',
+                                        0,
+                                        2
+                                    )) }}
+
+                                </div>
+
+                                <div class="flex-1 min-w-0">
+
+                                    <p class="text-sm font-extrabold text-slate-700 truncate">
+                                        {{ $bank->bank_name ?? $bank->account_name }}
+                                    </p>
+
+                                    <p class="text-xs text-slate-400 mt-0.5">
+                                        {{ $bank->account_number ?? 'A/C' }}
+                                    </p>
+
+                                </div>
+
+                                <div class="text-right flex-shrink-0">
+
+                                    <p class="text-base font-extrabold
+                                        {{ $bank->current_balance >= 0
+                                            ? 'text-emerald-600'
+                                            : 'text-red-500' }}">
+
+                                        <a
+                                            href="{{ route('bank-accounts.index') }}"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            class="balance-link {{ $bank->current_balance >= 0
+                                                ? 'text-emerald-600'
+                                                : 'text-red-500' }}">
+
+                                            ৳{{ number_format($bank->current_balance, 0) }}
+
+                                        </a>
+
+                                    </p>
+
+                                    <p class="text-[10px] text-slate-400">
+                                        Current Balance
+                                    </p>
+
+                                </div>
+
+                            </div>
+
+                        @empty
+
+                            <div class="py-12 text-center">
+
+                                <div class="h-14 w-14 mx-auto rounded-2xl bg-blue-50 flex items-center justify-center">
+                                    <i class="bi bi-bank text-2xl text-blue-300"></i>
+                                </div>
+
+                                <p class="text-sm text-slate-400 mt-3">
+                                    কোনো Bank Account যোগ করা হয়নি
+                                </p>
+
+                                <a
+                                    href="{{ route('bank-accounts.index') }}"
+                                    class="mt-2 inline-block text-xs font-bold text-blue-600 hover:text-blue-700">
+
+                                    + Bank Account যোগ করুন
+
+                                </a>
+
+                            </div>
+
+                        @endforelse
+
+                    </div>
+
+                </div>
+
+            </div>
+
         </div>
+
     </div>
-</div>
+
+@endsection
+
 
 @push('scripts')
+
 <script>
+
 document.addEventListener('DOMContentLoaded', function () {
-    const months = @json($months);
 
-    Chart.defaults.font.family = 'Inter, sans-serif';
-    Chart.defaults.font.size   = 11;
+    const fmt = v => '৳' + (
+        v >= 1e5
+            ? (v / 1e5).toFixed(1) + 'L'
+            : v >= 1e3
+                ? (v / 1e3).toFixed(1) + 'K'
+                : Number(v).toLocaleString('bn-BD')
+    );
 
-    // Revenue mini bar
-    new Chart(document.getElementById('chart-revenue'), {
-        type: 'bar',
-        data: {
-            labels: months,
-            datasets: [{
-                data: @json($revenueTrend),
-                backgroundColor: '#34d399',
-                borderRadius: 4,
-                barThickness: 6,
-            }]
+
+    const tooltipPlugin = {
+
+        backgroundColor: '#0F172A',
+        titleColor: '#CBD5E1',
+        bodyColor: '#F8FAFC',
+        padding: 12,
+        cornerRadius: 10,
+        borderColor: '#334155',
+        borderWidth: 1,
+
+        callbacks: {
+
+            label: ctx => '  ' + fmt(ctx.raw),
+
         },
-        options: miniOptions()
-    });
 
-    // Expenses mini line
-    new Chart(document.getElementById('chart-expenses'), {
-        type: 'line',
-        data: {
-            labels: months,
-            datasets: [{
-                data: @json($expenseTrend),
-                borderColor: '#fb7185',
-                backgroundColor: 'rgba(251,113,133,0.15)',
-                borderWidth: 2.5,
-                pointRadius: 0,
-                tension: 0.4,
-                fill: true,
-            }]
-        },
-        options: miniOptions()
-    });
+    };
 
-    // Profit mini line
-    new Chart(document.getElementById('chart-profit'), {
-        type: 'line',
-        data: {
-            labels: months,
-            datasets: [{
-                data: @json($netProfitTrend),
-                borderColor: '#fef3c7',
-                backgroundColor: 'rgba(255,255,255,0.18)',
-                borderWidth: 2.5,
-                pointRadius: 0,
-                tension: 0.4,
-                fill: true,
-            }]
-        },
-        options: miniOptions()
-    });
 
-    // Pending donut
-    new Chart(document.getElementById('chart-pending'), {
-        type: 'doughnut',
-        data: {
-            labels: ['Overdue', 'Due'],
-            datasets: [{
-                data: [{{ $pendingOverdueCount }}, {{ $pendingDueCount }}],
-                backgroundColor: ['#f43f5e', '#06b6d4'],
-                borderWidth: 0,
-            }]
-        },
-        options: {
-            cutout: '70%',
-            plugins: { legend: { display: false } },
-            responsive: true,
-            maintainAspectRatio: false,
+    const gridColor = '#EEF2FF';
+
+
+    const tickStyle = {
+
+        color: '#94A3B8',
+
+        font: {
+            size: 10,
+            family: 'inherit'
         }
-    });
 
-    // Revenue vs Expenses combo
-    new Chart(document.getElementById('chart-revenue-vs-expenses'), {
-        data: {
-            labels: months,
-            datasets: [
-                {
-                    type: 'bar',
-                    label: 'Revenue',
-                    data: @json($revenueTrend),
-                    backgroundColor: '#10b981',
-                    borderRadius: 6,
-                    order: 2,
-                },
-                {
-                    type: 'bar',
-                    label: 'Expenses',
-                    data: @json($expenseTrend),
-                    backgroundColor: '#fb923c',
-                    borderRadius: 6,
-                    order: 2,
-                },
-                {
-                    type: 'line',
-                    label: 'Net Profit',
-                    data: @json($netProfitTrend),
-                    borderColor: '#8b5cf6',
-                    backgroundColor: '#8b5cf6',
-                    borderWidth: 2.5,
-                    tension: 0.4,
-                    pointRadius: 3,
-                    order: 1,
-                },
-            ],
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
-            scales: {
-                x: { grid: { display: false } },
-                y: { grid: { color: '#f1f5f9' }, ticks: { callback: (v) => '৳' + v } },
-            },
-            plugins: {
-                legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8 } }
-            },
-        }
-    });
+    };
 
-    // Expense categories donut
-    new Chart(document.getElementById('chart-expense-categories'), {
-        type: 'doughnut',
-        data: {
-            labels: @json(array_keys($expenseCategories)),
-            datasets: [{
-                data: @json(array_values($expenseCategories)),
-                backgroundColor: ['#8b5cf6', '#f59e0b', '#06b6d4', '#64748b'],
-                borderWidth: 2,
-                borderColor: '#ffffff',
-            }]
-        },
-        options: {
-            cutout: '65%',
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-        }
-    });
 
-    // Cash flow
-    new Chart(document.getElementById('chart-cashflow'), {
-        type: 'line',
-        data: {
-            labels: @json($cashFlowLabels),
-            datasets: [
-                {
-                    label: 'Inflows',
-                    data: @json($cashFlowInflow),
-                    borderColor: '#06b6d4',
-                    backgroundColor: 'rgba(6,182,212,0.12)',
-                    borderWidth: 2.5,
-                    tension: 0.4,
-                    pointRadius: 3,
-                    fill: true,
-                },
-                {
-                    label: 'Outflows',
-                    data: @json($cashFlowOutflow),
-                    borderColor: '#f43f5e',
-                    backgroundColor: 'rgba(244,63,94,0.10)',
-                    borderWidth: 2.5,
-                    tension: 0.4,
-                    pointRadius: 3,
-                    fill: true,
-                },
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
-            scales: {
-                x: { grid: { display: false } },
-                y: { grid: { color: '#f1f5f9' } },
-            },
-            plugins: { legend: { display: false } },
-        }
-    });
+    /* =========================================================
+       REVENUE / EXPENSE / PROFIT CHART
+    ========================================================== */
 
-    // Sparklines
-    document.querySelectorAll('.sparkline').forEach(function (canvas) {
-        const values = JSON.parse(canvas.dataset.values || '[]');
-        new Chart(canvas, {
+    const rCtx = document.getElementById('revenueChart');
+
+    if (rCtx) {
+
+        new Chart(rCtx, {
+
             type: 'line',
-            data: {
-                labels: values.map((_, i) => i),
-                datasets: [{
-                    data: values,
-                    borderColor: '#0f9d84',
-                    borderWidth: 2,
-                    pointRadius: 0,
-                    tension: 0.4,
-                    fill: false,
-                }]
-            },
-            options: {
-                responsive: false,
-                plugins: { legend: { display: false }, tooltip: { enabled: false } },
-                scales: { x: { display: false }, y: { display: false } },
-            }
-        });
-    });
 
-    function miniOptions() {
-        return {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false }, tooltip: { enabled: false } },
-            scales: { x: { display: false }, y: { display: false } },
-        };
+            data: {
+
+                labels: @json($months),
+
+                datasets: [
+
+                    {
+
+                        label: 'রাজস্ব',
+
+                        data: @json($revenueTrend),
+
+                        borderColor: '#10B981',
+                        backgroundColor: 'rgba(16,185,129,.10)',
+                        borderWidth: 3,
+                        fill: true,
+                        tension: .45,
+                        pointRadius: 3,
+                        pointHoverRadius: 7,
+                        pointBackgroundColor: '#10B981',
+                        pointBorderColor: '#ffffff',
+                        pointBorderWidth: 2,
+
+                    },
+
+                    {
+
+                        label: 'খরচ',
+
+                        data: @json($expenseTrend),
+
+                        borderColor: '#F43F5E',
+                        backgroundColor: 'rgba(244,63,94,.03)',
+                        borderWidth: 2.5,
+                        borderDash: [6, 5],
+                        fill: false,
+                        tension: .45,
+                        pointRadius: 3,
+                        pointHoverRadius: 7,
+                        pointBackgroundColor: '#F43F5E',
+                        pointBorderColor: '#ffffff',
+                        pointBorderWidth: 2,
+
+                    },
+
+                    {
+
+                        label: 'মুনাফা',
+
+                        data: @json($netProfitTrend),
+
+                        borderColor: '#3B82F6',
+                        backgroundColor: 'rgba(59,130,246,.08)',
+                        borderWidth: 3,
+                        fill: true,
+                        tension: .45,
+                        pointRadius: 3,
+                        pointHoverRadius: 7,
+                        pointBackgroundColor: '#3B82F6',
+                        pointBorderColor: '#ffffff',
+                        pointBorderWidth: 2,
+
+                    },
+
+                ],
+
+            },
+
+
+            options: {
+
+                responsive: true,
+
+                maintainAspectRatio: false,
+
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+
+                plugins: {
+
+                    legend: {
+                        display: false
+                    },
+
+                    tooltip: tooltipPlugin,
+
+                },
+
+                scales: {
+
+                    x: {
+
+                        grid: {
+                            display: false
+                        },
+
+                        ticks: tickStyle,
+
+                    },
+
+                    y: {
+
+                        grid: {
+                            color: gridColor
+                        },
+
+                        ticks: {
+
+                            ...tickStyle,
+
+                            callback: fmt
+
+                        },
+
+                        border: {
+                            display: false
+                        },
+
+                    },
+
+                },
+
+            },
+
+        });
+
     }
+
+
+    /* =========================================================
+       EXPENSE DONUT
+    ========================================================== */
+
+    const dCtx = document.getElementById('expenseDonut');
+
+    if (dCtx) {
+
+        const palette = [
+
+            '#10B981',
+            '#3B82F6',
+            '#8B5CF6',
+            '#F59E0B',
+            '#EF4444',
+            '#6366F1',
+            '#EC4899',
+            '#14B8A6',
+
+        ];
+
+
+        new Chart(dCtx, {
+
+            type: 'doughnut',
+
+            data: {
+
+                labels: @json(array_keys($expenseCategories)),
+
+                datasets: [{
+
+                    data: @json(array_values($expenseCategories)),
+
+                    backgroundColor:
+                        palette.slice(
+                            0,
+                            {{ count($expenseCategories) }}
+                        ),
+
+                    borderWidth: 4,
+                    borderColor: '#ffffff',
+                    hoverOffset: 10,
+
+                }],
+
+            },
+
+
+            options: {
+
+                responsive: true,
+
+                maintainAspectRatio: false,
+
+                cutout: '68%',
+
+
+                plugins: {
+
+                    legend: {
+                        display: false
+                    },
+
+                    tooltip: {
+
+                        ...tooltipPlugin,
+
+                        callbacks: {
+
+                            label: ctx =>
+                                '  ' +
+                                fmt(ctx.raw) +
+                                '  (' +
+                                ctx.label +
+                                ')',
+
+                        },
+
+                    },
+
+                },
+
+            },
+
+        });
+
+    }
+
 });
+
 </script>
+
 @endpush
-@endsection

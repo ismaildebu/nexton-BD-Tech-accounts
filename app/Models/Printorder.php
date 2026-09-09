@@ -21,29 +21,47 @@ class PrintOrder extends Model
     public const STATUS_RECEIVED = 'Received';
     public const STATUS_CANCELLED = 'Cancelled';
 
-    protected $fillable = [
-        'company_id',
-        'publication_id',
-        'print_plan_id',
-        'vendor_id',
-        'order_number',
-        'order_date',
-        'print_date',
-        'ordered_quantity',
-        'printed_quantity',
-        'received_quantity',
-        'status',
-        'notes',
-        'created_by',
-    ];
+            protected $fillable = [
+            'company_id',
+            'publication_id',
+            'print_plan_id',
+            'vendor_id',
+            'order_number',
+            'order_date',
+            'print_date',
 
-    protected $casts = [
-        'order_date'         => 'date',
-        'print_date'         => 'date',
-        'ordered_quantity'   => 'integer',
-        'printed_quantity'   => 'integer',
-        'received_quantity'  => 'integer',
-    ];
+            'demand_quantity',
+            'buffer_percentage',
+            'buffer_quantity',
+            'final_quantity',
+
+            'ordered_quantity',
+            'printed_quantity',
+            'received_quantity',
+            'transaction_id',
+            'status',
+            'notes',
+            'created_by',
+            'unit_printing_cost',
+            'total_printing_cost',
+        ];
+
+        protected $casts = [
+            'order_date'          => 'date',
+            'print_date'          => 'date',
+
+            'demand_quantity'     => 'integer',
+            'buffer_percentage'   => 'decimal:2',
+            'buffer_quantity'     => 'integer',
+            'final_quantity'      => 'integer',
+
+            'ordered_quantity'    => 'integer',
+            'printed_quantity'    => 'integer',
+            'received_quantity'   => 'integer',
+
+            'unit_printing_cost'  => 'decimal:4',
+            'total_printing_cost' => 'decimal:2',
+        ];
 
     // ---------------------------------------------------------------
     // Relationships
@@ -76,4 +94,9 @@ class PrintOrder extends Model
     {
         return $this->belongsTo(User::class, 'created_by');
     }
+    public function transaction(): BelongsTo
+    {
+        return $this->belongsTo(Transaction::class);
+    }
+
 }

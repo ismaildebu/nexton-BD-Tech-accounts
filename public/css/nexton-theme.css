@@ -1,0 +1,16 @@
+/* Nexton Central Color System
+ * Change brand colors here to update the project-wide Nexton palette.
+ */
+:root {
+    --nexton-50: #f0fdfa;
+    --nexton-100: #ccfbf1;
+    --nexton-200: #99f6e4;
+    --nexton-300: #5eead4;
+    --nexton-400: #2dd4bf;
+    --nexton-500: #14b8a6;
+    --nexton-600: #0f4d42;
+    --nexton-700: #0a3a32;
+    --nexton-800: #062b25;
+    --nexton-900: #04211d;
+    --nexton-950: #021612;
+}

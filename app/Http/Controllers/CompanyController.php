@@ -148,38 +148,106 @@ class CompanyController extends Controller
     /**
      * Edit Company — Super Admin (any) or Admin (own company only).
      */
-    public function edit(Request $request, string $id)
-    {
-        $company = Company::findOrFail($id);
+            public function edit(Request $request, string $id)
+        {
+            $company = Company::findOrFail($id);
 
-        $this->authorizeCompanyAccess($request, $company);
+            $this->authorizeCompanyAccess($request, $company);
 
-        return view('companies.edit', compact('company'));
-    }
+            $accountTemplates = AccountTemplate::query()
+                ->orderBy('account_code')
+                ->get();
+
+            $companyAccounts = Account::withTrashed()
+                ->withoutGlobalScopes()
+                ->where('company_id', $company->id)
+                ->get();
+
+            $selectedAccountCodes = $companyAccounts
+                ->pluck('account_code')
+                ->filter()
+                ->map(fn ($code) => (int) $code)
+                ->values()
+                ->all();
+
+            return view('companies.edit', compact(
+                'company',
+                'accountTemplates',
+                'selectedAccountCodes'
+            ));
+        }
 
     /**
      * Update Company — Super Admin (any) or Admin (own company only).
      */
     public function update(Request $request, string $id)
-    {
-        $company = Company::findOrFail($id);
+        {
+            $company = Company::findOrFail($id);
 
-        $this->authorizeCompanyAccess($request, $company);
+            $this->authorizeCompanyAccess($request, $company);
 
-        $request->validate([
-            'company_name'  => 'required|string|max:255',
-            'business_type' => 'required|string',
-        ]);
+            $validated = $request->validate([
+                'company_name'  => 'required|string|max:255',
+                'business_type' => 'required|string',
+                'accounts'      => 'nullable|array',
+                'accounts.*'    => 'exists:account_templates,id',
+            ]);
 
-        $company->update([
-            'company_name'  => $request->company_name,
-            'business_type' => $request->business_type,
-        ]);
+            DB::transaction(function () use ($validated, $company) {
 
-        return redirect()
-            ->route('companies.index')
-            ->with('success', 'Company updated successfully.');
-    }
+                $company->update([
+                    'company_name'  => $validated['company_name'],
+                    'business_type' => $validated['business_type'],
+                ]);
+
+                $selectedTemplateIds = collect($validated['accounts'] ?? [])
+                    ->map(fn ($id) => (int) $id)
+                    ->unique()
+                    ->values();
+
+                $templates = AccountTemplate::query()
+                    ->whereIn('id', $selectedTemplateIds)
+                    ->orderBy('account_code')
+                    ->get();
+
+                foreach ($templates as $template) {
+
+                    $account = Account::withTrashed()
+                        ->withoutGlobalScopes()
+                        ->where('company_id', $company->id)
+                        ->where('account_code', $template->account_code)
+                        ->first();
+
+                    if ($account) {
+
+                        if ($account->trashed()) {
+                            $account->restore();
+                        }
+
+                        continue;
+                    }
+
+                    Account::create([
+                        'company_id'      => $company->id,
+                        'account_code'    => $template->account_code,
+                        'account_name'    => $template->account_name,
+                        'account_type'    => $template->account_type,
+                        'nature'          => $template->nature,
+                        'parent_id'       => null,
+                        'level'           => $template->level ?? 1,
+                        'color'           => null,
+                        'is_system'       => $template->is_system,
+                        'is_active'       => $template->is_active,
+                        'opening_balance' => 0,
+                        'balance_type'    => $template->balance_type,
+                    ]);
+                }
+            });
+
+            return redirect()
+                ->route('companies.index')
+                ->with('success', 'Company and account settings updated successfully.');
+        }
 
     /**
      * Delete Company — Super Admin only.

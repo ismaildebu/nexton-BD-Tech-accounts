@@ -12,23 +12,6 @@ use App\Http\Controllers\Media\PrintPlanController;
 use App\Http\Controllers\Media\PublicationController;
 use Illuminate\Support\Facades\Route;
 
-
-/*
-|--------------------------------------------------------------------------
-| Media Business Module Routes
-|--------------------------------------------------------------------------
-|
-| Same conventions as routes/purchase.php and routes/inventory.php:
-|   - 'auth' + 'verified' + 'company' -> session-based company isolation
-|     (EnsureCompanySelected locks a company-scoped user to their own
-|     company_id automatically).
-|   - 'module:media' -> only companies with business_type = 'Media' can
-|     reach these routes (Company::hasModule()).
-|   - 'can-permission:<name>' on each action, following the
-|     RoleAndPermissionSeeder group naming used everywhere else.
-|
-*/
-
 Route::middleware(['auth', 'verified', 'company', 'module:media', 'plan-feature:media'])
     ->prefix('media')
     ->name('media.')
@@ -46,9 +29,30 @@ Route::middleware(['auth', 'verified', 'company', 'module:media', 'plan-feature:
                 'destroy' => 'can-permission:media-publications.delete',
             ]);
 
+        // ──────────────────────────────────────────────────────────────
+        // IMPORTANT: Bulk routes must come BEFORE Route::resource so
+        // Laravel does not treat 'bulk-create' as a {media_party} slug.
+        // ──────────────────────────────────────────────────────────────
+
+        // Agent + Hawker bulk entry
+        Route::get('parties/bulk-create', [MediaPartyController::class, 'bulkCreate'])
+            ->name('parties.bulk-create')
+            ->middleware('can-permission:media-parties.create');
+
+        Route::post('parties/bulk-store', [MediaPartyController::class, 'bulkStore'])
+            ->name('parties.bulk-store')
+            ->middleware('can-permission:media-parties.create');
+
+        // Journalist bulk entry
+        Route::get('parties/journalists/bulk-create', [MediaPartyController::class, 'journalistBulkCreate'])
+            ->name('parties.journalists.bulk-create')
+            ->middleware('can-permission:media-parties.create');
+
+        Route::post('parties/journalists/bulk-store', [MediaPartyController::class, 'journalistBulkStore'])
+            ->name('parties.journalists.bulk-store')
+            ->middleware('can-permission:media-parties.create');
+
         // Agent + Hawker share this one resource; `type` distinguishes them.
-        // There is intentionally no nested/child route implying a
-        // parent-child relationship between the two.
         Route::resource('parties', MediaPartyController::class)
             ->parameters(['parties' => 'media_party'])
             ->middleware([
@@ -89,9 +93,6 @@ Route::middleware(['auth', 'verified', 'company', 'module:media', 'plan-feature:
                 'update' => 'can-permission:media-print-orders.edit',
             ]);
 
-        // Create a Print Order directly from an Approved Print Plan —
-        // ordered_quantity comes from the plan, never hand-entered.
-        // (Uses the same create() form — see approvedPlans in the view.)
         Route::post('print-plans/{print_plan}/print-order', [PrintOrderController::class, 'storeFromPlan'])
             ->name('print-orders.store-from-plan')
             ->middleware('can-permission:media-print-orders.create');
@@ -117,9 +118,6 @@ Route::middleware(['auth', 'verified', 'company', 'module:media', 'plan-feature:
                 'store'  => 'can-permission:media-distributions.create',
             ]);
 
-        // Dispatch Sheet (whole run) and Bundle Slips (per-item) PDFs —
-        // generated purely from MediaDistribution + MediaDistributionItem
-        // + MediaParty, never from hand-typed data.
         Route::get('distributions/{distribution}/dispatch-sheet', [MediaDistributionController::class, 'dispatchSheetPdf'])
             ->name('distributions.dispatch-sheet')
             ->middleware('can-permission:media-distributions.print');
@@ -150,7 +148,6 @@ Route::middleware(['auth', 'verified', 'company', 'module:media', 'plan-feature:
                 'store'  => 'can-permission:media-collections.create',
             ]);
 
-            // ─── Media Reports ────────────────────────────────────────────────────────
         Route::prefix('reports')->name('reports.')->group(function () {
             Route::get('stock', [MediaReportController::class, 'stockReport'])
                 ->name('stock')->middleware('can-permission:media-reports.view');
@@ -169,5 +166,4 @@ Route::middleware(['auth', 'verified', 'company', 'module:media', 'plan-feature:
             Route::get('party-ledger/pdf', [MediaReportController::class, 'partyLedgerPdf'])
                 ->name('party-ledger.pdf')->middleware('can-permission:media-reports.view');
         });
-
     });

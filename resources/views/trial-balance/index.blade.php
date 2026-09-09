@@ -27,6 +27,7 @@
                     </p>
                 </div>
 
+
                 <div class="flex flex-wrap gap-2">
 
                     @php
@@ -45,20 +46,25 @@
                         }
                     @endphp
 
+
+                    {{-- PDF --}}
                     <a
+                        id="trial-balance-pdf-button"
                         href="{{ route('trial-balance.pdf', $reportQuery) }}"
                         class="inline-flex items-center rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
                     >
                         Download PDF
                     </a>
 
-                    <a
-                        href="{{ route('trial-balance.print', $reportQuery) }}"
-                        target="_blank"
+
+                    {{-- Print --}}
+                    <button
+                        type="button"
+                        id="trial-balance-print-button"
                         class="inline-flex items-center rounded-lg bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-900"
                     >
                         Print
-                    </a>
+                    </button>
 
                 </div>
 
@@ -68,7 +74,6 @@
             {{-- ============================================================
                  PERIOD FILTER
             ============================================================= --}}
-
             <form
                 method="GET"
                 action="{{ route('trial-balance.index') }}"
@@ -229,6 +234,27 @@
                 </div>
 
 
+                {{-- Zero Balance Print / PDF Filter --}}
+                <div class="mt-4">
+
+                    <label class="inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-gray-700">
+
+                        <input
+                            type="checkbox"
+                            id="hide-zero-balance"
+                            class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        >
+
+                        <span>
+                            Hide Zero Balance Accounts when Printing / PDF
+                        </span>
+
+                    </label>
+
+                </div>
+
+
+                {{-- Generate --}}
                 <div class="mt-4">
 
                     <button
@@ -250,7 +276,6 @@
     {{-- ================================================================
          STATEMENT
     ================================================================= --}}
-
     <div
         id="trial-balance-statement"
         class="mx-auto max-w-7xl bg-white px-8 py-8 shadow-sm print:max-w-none print:px-8 print:py-5 print:shadow-none"
@@ -316,7 +341,6 @@
         {{-- ============================================================
              TABLE
         ============================================================= --}}
-
         <div class="mt-6 overflow-x-auto">
 
             <table class="w-full border-collapse text-xs">
@@ -398,78 +422,109 @@
 
                     @forelse($accounts as $account)
 
-                        <tr class="border-b border-gray-200">
+                        @php
+                            $isZeroBalanceAccount =
+                                abs((float) $account->report_opening_debit) < 0.005
+                                && abs((float) $account->report_opening_credit) < 0.005
+                                && abs((float) $account->report_period_debit) < 0.005
+                                && abs((float) $account->report_period_credit) < 0.005
+                                && abs((float) $account->report_closing_debit) < 0.005
+                                && abs((float) $account->report_closing_credit) < 0.005;
+                        @endphp
 
+
+                        <tr
+                            class="border-b border-gray-200 trial-balance-account-row"
+                            data-zero-balance="{{ $isZeroBalanceAccount ? '1' : '0' }}"
+                        >
+
+                            {{-- Code --}}
                             <td class="border-l border-gray-300 px-2 py-1.5 text-gray-600">
                                 {{ $account->account_code }}
                             </td>
 
+
+                            {{-- Account --}}
                             <td class="px-2 py-1.5 text-gray-800">
+
                                 {{ $account->account_name }}
 
                                 <span class="ml-1 text-[10px] text-gray-400">
                                     {{ $account->account_type }}
                                 </span>
+
                             </td>
 
 
                             {{-- Opening Debit --}}
                             <td class="border-l border-gray-300 px-2 py-1.5 text-right tabular-nums">
+
                                 @if(abs((float) $account->report_opening_debit) < 0.005)
                                     -
                                 @else
                                     {{ number_format((float) $account->report_opening_debit, 2) }}
                                 @endif
+
                             </td>
 
 
                             {{-- Opening Credit --}}
                             <td class="px-2 py-1.5 text-right tabular-nums">
+
                                 @if(abs((float) $account->report_opening_credit) < 0.005)
                                     -
                                 @else
                                     {{ number_format((float) $account->report_opening_credit, 2) }}
                                 @endif
+
                             </td>
 
 
                             {{-- Period Debit --}}
                             <td class="border-l border-gray-300 px-2 py-1.5 text-right tabular-nums">
+
                                 @if(abs((float) $account->report_period_debit) < 0.005)
                                     -
                                 @else
                                     {{ number_format((float) $account->report_period_debit, 2) }}
                                 @endif
+
                             </td>
 
 
                             {{-- Period Credit --}}
                             <td class="px-2 py-1.5 text-right tabular-nums">
+
                                 @if(abs((float) $account->report_period_credit) < 0.005)
                                     -
                                 @else
                                     {{ number_format((float) $account->report_period_credit, 2) }}
                                 @endif
+
                             </td>
 
 
                             {{-- Closing Debit --}}
                             <td class="border-l border-gray-300 px-2 py-1.5 text-right font-medium tabular-nums">
+
                                 @if(abs((float) $account->report_closing_debit) < 0.005)
                                     -
                                 @else
                                     {{ number_format((float) $account->report_closing_debit, 2) }}
                                 @endif
+
                             </td>
 
 
                             {{-- Closing Credit --}}
                             <td class="px-2 py-1.5 text-right font-medium tabular-nums">
+
                                 @if(abs((float) $account->report_closing_credit) < 0.005)
                                     -
                                 @else
                                     {{ number_format((float) $account->report_closing_credit, 2) }}
                                 @endif
+
                             </td>
 
                         </tr>
@@ -483,7 +538,6 @@
                                 class="px-3 py-8 text-center text-gray-500"
                             >
                                 No accounts found for this company.
-
                             </td>
 
                         </tr>
@@ -504,7 +558,6 @@
                         >
                             TOTAL
                         </td>
-
 
                         <td class="border border-gray-700 px-2 py-2 text-right tabular-nums">
                             {{ number_format($totalOpeningDebit, 2) }}
@@ -542,7 +595,6 @@
         {{-- ============================================================
              BALANCE CHECK
         ============================================================= --}}
-
         <div class="mt-6 border-t border-gray-300 pt-4">
 
             <div class="flex items-center justify-between">
@@ -594,52 +646,43 @@
         {{-- ============================================================
              SIGNATURE
         ============================================================= --}}
-
         <div class="mt-16 print:mt-12">
 
             <div class="grid grid-cols-4 gap-10">
 
                 <div>
-
                     <div class="border-b border-gray-700"></div>
 
                     <p class="mt-2 text-xs text-gray-700">
                         Prepared By
                     </p>
-
                 </div>
 
 
                 <div>
-
                     <div class="border-b border-gray-700"></div>
 
                     <p class="mt-2 text-xs text-gray-700">
                         Checked By
                     </p>
-
                 </div>
 
 
                 <div>
-
                     <div class="border-b border-gray-700"></div>
 
                     <p class="mt-2 text-xs text-gray-700">
                         Authorized By
                     </p>
-
                 </div>
 
 
                 <div>
-
                     <div class="border-b border-gray-700"></div>
 
                     <p class="mt-2 text-xs text-gray-700">
                         Date
                     </p>
-
                 </div>
 
             </div>
@@ -669,9 +712,7 @@
 {{-- ================================================================
      PERIOD FIELD SCRIPT
 ================================================================= --}}
-
 <script>
-
     function toggleTrialBalancePeriodFields() {
 
         const period = document.getElementById('period').value;
@@ -684,6 +725,7 @@
 
         const customToField =
             document.getElementById('custom-to-field');
+
 
         if (period === 'month') {
 
@@ -714,41 +756,177 @@
     }
 
 
-    document.addEventListener(
-        'DOMContentLoaded',
-        function () {
+    document.addEventListener('DOMContentLoaded', function () {
 
-            toggleTrialBalancePeriodFields();
+        toggleTrialBalancePeriodFields();
+
+    });
+</script>
+
+
+{{-- ================================================================
+     PRINT + PDF ZERO BALANCE FILTER
+================================================================= --}}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+
+        const checkbox =
+            document.getElementById('hide-zero-balance');
+
+        const pdfButton =
+            document.getElementById('trial-balance-pdf-button');
+
+        const printButton =
+            document.getElementById('trial-balance-print-button');
+
+        const zeroBalanceRows =
+            document.querySelectorAll(
+                '.trial-balance-account-row[data-zero-balance="1"]'
+            );
+
+
+        if (!checkbox || !pdfButton || !printButton) {
+            return;
+        }
+
+
+        /*
+         * ------------------------------------------------------------
+         * Update PDF URL
+         * ------------------------------------------------------------
+         */
+        function updatePdfUrl() {
+
+            const pdfUrl = new URL(
+                @json(route('trial-balance.pdf', $reportQuery)),
+                window.location.origin
+            );
+
+
+            pdfUrl.searchParams.set(
+                'hide_zero',
+                checkbox.checked ? '1' : '0'
+            );
+
+
+            pdfButton.href = pdfUrl.toString();
 
         }
-    );
 
+
+        /*
+         * ------------------------------------------------------------
+         * Apply Print Filter
+         * ------------------------------------------------------------
+         */
+        function applyPrintFilter() {
+
+            const hideZero =
+                checkbox.checked;
+
+
+            zeroBalanceRows.forEach(function (row) {
+
+                row.classList.toggle(
+                    'hide-zero-balance-row',
+                    hideZero
+                );
+
+            });
+
+        }
+
+
+        /*
+         * ------------------------------------------------------------
+         * Checkbox Change
+         * ------------------------------------------------------------
+         */
+        checkbox.addEventListener('change', function () {
+
+            updatePdfUrl();
+
+        });
+
+
+        /*
+         * ------------------------------------------------------------
+         * Print Button
+         * ------------------------------------------------------------
+         */
+        printButton.addEventListener('click', function () {
+
+            applyPrintFilter();
+
+            window.print();
+
+        });
+
+
+        /*
+         * ------------------------------------------------------------
+         * Browser Print
+         * ------------------------------------------------------------
+         */
+        window.addEventListener('beforeprint', function () {
+
+            applyPrintFilter();
+
+        });
+
+
+        /*
+         * ------------------------------------------------------------
+         * Restore Screen After Print
+         * ------------------------------------------------------------
+         */
+        window.addEventListener('afterprint', function () {
+
+            zeroBalanceRows.forEach(function (row) {
+
+                row.classList.remove(
+                    'hide-zero-balance-row'
+                );
+
+            });
+
+        });
+
+
+        /*
+         * ------------------------------------------------------------
+         * Initial PDF URL
+         * ------------------------------------------------------------
+         */
+        updatePdfUrl();
+
+    });
 </script>
 
 
 {{-- ================================================================
      AUTO PRINT
 ================================================================= --}}
-
 @if($autoPrint ?? false)
 
-<script>
+    <script>
+        window.addEventListener('load', function () {
 
-    window.addEventListener('load', function () {
+            setTimeout(function () {
 
-        setTimeout(function () {
+                window.print();
 
-            window.print();
+            }, 500);
 
-        }, 500);
-
-    });
-
-</script>
+        });
+    </script>
 
 @endif
 
 
+{{-- ================================================================
+     PRINT CSS
+================================================================= --}}
 <style>
 
     .tabular-nums {
@@ -758,6 +936,11 @@
 
     @media print {
 
+        .hide-zero-balance-row {
+            display: none !important;
+        }
+
+
         @page {
             size: A4 landscape;
             margin: 10mm;
@@ -766,76 +949,52 @@
 
         html,
         body {
-
             background: #ffffff !important;
-
             margin: 0 !important;
-
             padding: 0 !important;
-
         }
 
 
         body {
-
             -webkit-print-color-adjust: exact;
-
             print-color-adjust: exact;
-
         }
 
 
         #trial-balance-statement {
-
             width: 100% !important;
-
             max-width: none !important;
-
             margin: 0 !important;
-
             padding: 0 !important;
-
         }
 
 
         table {
-
             width: 100% !important;
-
         }
 
 
         tr,
         td,
         th {
-
             break-inside: avoid;
-
             page-break-inside: avoid;
-
         }
 
 
         thead {
-
             display: table-header-group;
-
         }
 
 
         tfoot {
-
             display: table-footer-group;
-
         }
 
 
         header {
-
             break-after: avoid;
-
             page-break-after: avoid;
-
         }
 
     }

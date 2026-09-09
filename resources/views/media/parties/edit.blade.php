@@ -26,6 +26,8 @@
                         class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                     <option value="agent" {{ old('type', $party->type) === 'agent' ? 'selected' : '' }}>Agent</option>
                     <option value="hawker" {{ old('type', $party->type) === 'hawker' ? 'selected' : '' }}>Hawker</option>
+                    <option value="journalist" {{ old('type', $party->type) === 'journalist' ? 'selected' : '' }}>Journalist</option>
+
                 </select>
             </div>
 

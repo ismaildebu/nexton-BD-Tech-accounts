@@ -32,8 +32,9 @@
                 <tr class="hover:bg-slate-50">
                     <td class="px-4 py-3">{{ $return->return_date }}</td>
                     <td class="px-4 py-3 font-medium">{{ $return->publication->name ?? '-' }}</td>
-                    <td class="px-4 py-3 text-right">{{ number_format($return->total_paid_return ?? 0) }}</td>
-                    <td class="px-4 py-3 text-right">{{ number_format($return->total_free_return ?? 0) }}</td>
+                    <td class="px-4 py-3 text-right">{{ number_format($return->total_paid_return_quantity ?? 0) }}</td>
+                    <td class="px-4 py-3 text-right">{{ number_format($return->total_free_return_quantity ?? 0) }}</td>
+                    
                     <td class="px-4 py-3">
                         <span class="px-2 py-1 rounded-full text-xs font-medium
                             {{ $return->status === 'draft' ? 'bg-slate-100 text-slate-600' : 'bg-green-50 text-green-700' }}">

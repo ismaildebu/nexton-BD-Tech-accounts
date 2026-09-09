@@ -56,11 +56,10 @@ class LedgerController extends Controller
             // -------------------------------------------------------
             // Main Ledger Query
             // -------------------------------------------------------
-            $query = LedgerEntry::query()
+                $query = LedgerEntry::query()
                 ->with(['transaction.voucherType'])
                 ->where('company_id', $companyId)
-                ->where('account_id', $request->input('account_id'))
-                ->where('is_reversed', false);
+                ->where('account_id', $request->input('account_id'));
 
             if ($request->filled('financial_year_id')) {
                 $query->where('financial_year_id', $request->input('financial_year_id'));
@@ -153,11 +152,11 @@ class LedgerController extends Controller
         }
 
         // Date filter আছে → filter-এর আগের সব entry দিয়ে balance বের করো
+       
         $query = LedgerEntry::query()
-            ->where('company_id', $companyId)
-            ->where('account_id', $account->id)
-            ->where('is_reversed', false)
-            ->whereDate('voucher_date', '<', $fromDate);
+        ->where('company_id', $companyId)
+        ->where('account_id', $account->id)
+        ->whereDate('voucher_date', '<', $fromDate);
 
         if (! empty($financialYearId)) {
             $query->where('financial_year_id', $financialYearId);

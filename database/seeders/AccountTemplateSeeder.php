@@ -161,6 +161,57 @@ class AccountTemplateSeeder extends Seeder
                 'is_active' => true,
             ],
 
+
+            [
+    'account_code' => 3003,
+    'account_name' => 'Accrued Salary Payable',
+    'account_type' => 'Liability',
+    'nature' => 'General',
+    'balance_type' => 'Credit',
+    'industry' => 'Media',
+    'business_type' => null,
+    'is_system' => true,
+    'is_active' => true,
+],
+
+[
+    'account_code' => 3004,
+    'account_name' => 'Tax Payable',
+    'account_type' => 'Liability',
+    'nature' => 'General',
+    'balance_type' => 'Credit',
+    'industry' => 'Media',
+    'business_type' => null,
+    'is_system' => true,
+    'is_active' => true,
+],
+
+[
+    'account_code' => 3005,
+    'account_name' => 'VAT Payable',
+    'account_type' => 'Liability',
+    'nature' => 'General',
+    'balance_type' => 'Credit',
+    'industry' => 'Media',
+    'business_type' => null,
+    'is_system' => true,
+    'is_active' => true,
+],
+
+[
+    'account_code' => 3006,
+    'account_name' => 'Customer Advance / Subscription Advance',
+    'account_type' => 'Liability',
+    'nature' => 'General',
+    'balance_type' => 'Credit',
+    'industry' => 'Media',
+    'business_type' => null,
+    'is_system' => true,
+    'is_active' => true,
+],
+
+
+
             /*
             |--------------------------------------------------------------------------
             | EQUITY (4000)
@@ -178,6 +229,34 @@ class AccountTemplateSeeder extends Seeder
                 'is_system' => true,
                 'is_active' => true,
             ],
+
+
+            [
+    'account_code' => 4002,
+    'account_name' => 'Retained Earnings',
+    'account_type' => 'Equity',
+    'nature' => 'General',
+    'balance_type' => 'Credit',
+    'industry' => 'Media',
+    'business_type' => null,
+    'is_system' => true,
+    'is_active' => true,
+],
+
+[
+    'account_code' => 4003,
+    'account_name' => "Owner's Drawings",
+    'account_type' => 'Equity',
+    'nature' => 'General',
+    'balance_type' => 'Debit',
+    'industry' => 'Media',
+    'business_type' => null,
+    'is_system' => true,
+    'is_active' => true,
+],
+
+
+
 
             /*
             |--------------------------------------------------------------------------
@@ -250,6 +329,18 @@ class AccountTemplateSeeder extends Seeder
     'account_name' => 'Camera & Media Equipment',
     'account_type' => 'Asset',
     'nature' => 'Fixed Asset',
+    'balance_type' => 'Debit',
+    'industry' => 'Media',
+    'business_type' => null,
+    'is_system' => true,
+    'is_active' => true,
+],
+
+[
+    'account_code' => 1104,
+    'account_name' => 'Newspaper Finished Goods / Stock',
+    'account_type' => 'Asset',
+    'nature' => 'Inventory',
     'balance_type' => 'Debit',
     'industry' => 'Media',
     'business_type' => null,
@@ -371,6 +462,138 @@ class AccountTemplateSeeder extends Seeder
     'is_active' => true,
 ],
 
+[
+    'account_code' => 2110,
+    'account_name' => 'Freelancer / Contributor Expense',
+    'account_type' => 'Expense',
+    'nature' => 'Expense',
+    'balance_type' => 'Debit',
+    'industry' => 'Media',
+    'business_type' => null,
+    'is_system' => true,
+    'is_active' => true,
+],
+
+[
+    'account_code' => 2111,
+    'account_name' => 'News Gathering Expense',
+    'account_type' => 'Expense',
+    'nature' => 'Expense',
+    'balance_type' => 'Debit',
+    'industry' => 'Media',
+    'business_type' => null,
+    'is_system' => true,
+    'is_active' => true,
+],
+
+[
+    'account_code' => 2112,
+    'account_name' => 'Transportation Expense',
+    'account_type' => 'Expense',
+    'nature' => 'Expense',
+    'balance_type' => 'Debit',
+    'industry' => 'Media',
+    'business_type' => null,
+    'is_system' => true,
+    'is_active' => true,
+],
+
+[
+    'account_code' => 2113,
+    'account_name' => 'Commission Expense',
+    'account_type' => 'Expense',
+    'nature' => 'Expense',
+    'balance_type' => 'Debit',
+    'industry' => 'Media',
+    'business_type' => null,
+    'is_system' => true,
+    'is_active' => true,
+],
+
+[
+    'account_code' => 2114,
+    'account_name' => 'Advertisement Promotion Expense',
+    'account_type' => 'Expense',
+    'nature' => 'Expense',
+    'balance_type' => 'Debit',
+    'industry' => 'Media',
+    'business_type' => null,
+    'is_system' => true,
+    'is_active' => true,
+],
+
+[
+    'account_code' => 2115,
+    'account_name' => 'Digital Content Expense',
+    'account_type' => 'Expense',
+    'nature' => 'Expense',
+    'balance_type' => 'Debit',
+    'industry' => 'Media',
+    'business_type' => null,
+    'is_system' => true,
+    'is_active' => true,
+],
+
+[
+    'account_code' => 2116,
+    'account_name' => 'Software & Subscription Expense',
+    'account_type' => 'Expense',
+    'nature' => 'Expense',
+    'balance_type' => 'Debit',
+    'industry' => 'Media',
+    'business_type' => null,
+    'is_system' => true,
+    'is_active' => true,
+],
+
+[
+    'account_code' => 2117,
+    'account_name' => 'Telephone & Communication Expense',
+    'account_type' => 'Expense',
+    'nature' => 'Expense',
+    'balance_type' => 'Debit',
+    'industry' => 'Media',
+    'business_type' => null,
+    'is_system' => true,
+    'is_active' => true,
+],
+
+[
+    'account_code' => 2118,
+    'account_name' => 'Office Supplies Expense',
+    'account_type' => 'Expense',
+    'nature' => 'Expense',
+    'balance_type' => 'Debit',
+    'industry' => 'Media',
+    'business_type' => null,
+    'is_system' => true,
+    'is_active' => true,
+],
+
+[
+    'account_code' => 2119,
+    'account_name' => 'Legal & Compliance Expense',
+    'account_type' => 'Expense',
+    'nature' => 'Expense',
+    'balance_type' => 'Debit',
+    'industry' => 'Media',
+    'business_type' => null,
+    'is_system' => true,
+    'is_active' => true,
+],
+
+[
+    'account_code' => 2120,
+    'account_name' => 'Depreciation Expense',
+    'account_type' => 'Expense',
+    'nature' => 'Expense',
+    'balance_type' => 'Debit',
+    'industry' => 'Media',
+    'business_type' => null,
+    'is_system' => true,
+    'is_active' => true,
+],
+
 /*
 |--------------------------------------------------------------------------
 | INCOME
@@ -424,6 +647,57 @@ class AccountTemplateSeeder extends Seeder
     'is_system' => true,
     'is_active' => true,
 ],
+
+
+[
+    'account_code' => 5105,
+    'account_name' => 'Newspaper Sales Revenue',
+    'account_type' => 'Income',
+    'nature' => 'Income',
+    'balance_type' => 'Credit',
+    'industry' => 'Media',
+    'business_type' => null,
+    'is_system' => true,
+    'is_active' => true,
+],
+
+[
+    'account_code' => 5106,
+    'account_name' => 'Content Licensing Revenue',
+    'account_type' => 'Income',
+    'nature' => 'Income',
+    'balance_type' => 'Credit',
+    'industry' => 'Media',
+    'business_type' => null,
+    'is_system' => true,
+    'is_active' => true,
+],
+
+[
+    'account_code' => 5107,
+    'account_name' => 'Event Revenue',
+    'account_type' => 'Income',
+    'nature' => 'Income',
+    'balance_type' => 'Credit',
+    'industry' => 'Media',
+    'business_type' => null,
+    'is_system' => true,
+    'is_active' => true,
+],
+
+[
+    'account_code' => 5108,
+    'account_name' => 'Other Media Revenue',
+    'account_type' => 'Income',
+    'nature' => 'Income',
+    'balance_type' => 'Credit',
+    'industry' => 'Media',
+    'business_type' => null,
+    'is_system' => true,
+    'is_active' => true,
+],
+
+
 
 
 

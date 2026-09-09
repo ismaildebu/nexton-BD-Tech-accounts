@@ -9,6 +9,7 @@ use App\Http\Requests\Media\StorePrintOrderFromPlanRequest;
 use App\Http\Requests\Media\StorePrintOrderRequest;
 use App\Http\Requests\Media\UpdatePrintOrderRequest;
 use App\Http\Requests\Media\UpdatePrintOrderStatusRequest;
+use App\Models\MediaDistribution;
 use App\Models\PrintOrder;
 use App\Models\PrintPlan;
 use App\Models\Publication;
@@ -20,176 +21,408 @@ use RuntimeException;
 
 class PrintOrderController extends Controller
 {
-    public function __construct(private readonly PrintOrderService $printOrderService)
-    {
+    public function __construct(
+        private readonly PrintOrderService $printOrderService
+    ) {
     }
 
     /**
-     * NOTE: class-level abilities (viewAny/create) are enforced by the
-     * 'can-permission:media-print-orders.*' route middleware and the
-     * FormRequest's authorize() — see PublicationController for why
-     * $this->authorize('create'/'viewAny', ModelClass::class) can't
-     * work with a generic, class-string-driven ModulePolicy.
+     * Display Print Orders.
      */
     public function index()
     {
-        $orders = PrintOrder::with('publication', 'vendor', 'printPlan')
+        $orders = PrintOrder::with(
+            'publication',
+            'vendor',
+            'printPlan'
+        )
             ->latest('order_date')
             ->get();
 
-        return view('media.print-orders.index', compact('orders'));
+        return view(
+            'media.print-orders.index',
+            compact('orders')
+        );
     }
 
-    public function create(Request $request)
+    /**
+     * Show the demand-driven Print Order creation form.
+     *
+     * Operational flow:
+     *
+     * Confirmed Distribution
+     *        ↓
+     * Demand Quantity
+     *        ↓
+     * Buffer %
+     *        ↓
+     * Buffer Quantity
+     *        ↓
+     * Final Print Quantity
+     */
+    public function create()
     {
         $companyId = session('company_id');
 
-        $publications = Publication::active()->get();
-        $vendors      = Vendor::where('company_id', $companyId)->where('is_active', true)->get();
-        $approvedPlans = PrintPlan::where('status', PrintPlan::STATUS_APPROVED)
-            ->whereDoesntHave('printOrders')
-            ->with('publication')
+        /*
+         * Only active publications belonging to the
+         * current company are loaded through the
+         * company-scoped Publication model.
+         */
+        $publications = Publication::active()
             ->get();
 
-        // Optional: ?plan=<id> preselects an approved plan (e.g. linked
-        // from the Print Plan show page) so the order form can be
-        // rendered in "from plan" mode with ordered_quantity locked to
-        // the plan's final_quantity.
-        $selectedPlan = null;
-        if ($request->filled('plan')) {
-            $selectedPlan = $approvedPlans->firstWhere('id', (int) $request->query('plan'));
-        }
+        /*
+         * Vendors are explicitly company-scoped.
+         */
+        $vendors = Vendor::where(
+            'company_id',
+            $companyId
+        )
+            ->where('is_active', true)
+            ->get();
 
-        return view('media.print-orders.create', compact('publications', 'vendors', 'approvedPlans', 'selectedPlan'));
+        /*
+         * Get the latest Confirmed Distribution for each
+         * publication belonging to the current company.
+         *
+         * Draft and Cancelled distributions are ignored.
+         */
+        $latestDistributions = MediaDistribution::query()
+            ->where('company_id', $companyId)
+            ->where(
+                'status',
+                MediaDistribution::STATUS_CONFIRMED
+            )
+            ->orderByDesc('distribution_date')
+            ->orderByDesc('id')
+            ->get()
+            ->unique('publication_id')
+            ->keyBy('publication_id');
+
+        return view(
+            'media.print-orders.create',
+            compact(
+                'publications',
+                'vendors',
+                'latestDistributions'
+            )
+        );
     }
 
     /**
-     * Ad-hoc order — no plan behind it, ordered_quantity hand-entered.
+     * Store a demand-driven Print Order.
+     *
+     * Demand and final quantity are calculated server-side
+     * inside PrintOrderService.
      */
-    public function store(StorePrintOrderRequest $request): RedirectResponse
-    {
-        $publication = Publication::findOrFail($request->validated('publication_id'));
+    public function store(
+        StorePrintOrderRequest $request
+    ): RedirectResponse {
+        $validated = $request->validated();
 
-        $order = $this->printOrderService->create(
-            publication: $publication,
-            companyId: session('company_id'),
-            createdBy: auth()->id(),
-            data: $request->safe()->except('publication_id'),
+        /*
+         * Publication is already company-scoped by
+         * StorePrintOrderRequest validation.
+         */
+        $publication = Publication::findOrFail(
+            $validated['publication_id']
         );
 
-        return redirect()->route('media.print-orders.show', $order)
-            ->with('success', "Print order {$order->order_number} created!");
+        try {
+            $order = $this->printOrderService->create(
+                publication: $publication,
+                companyId: (int) session('company_id'),
+                createdBy: (int) auth()->id(),
+                data: $validated,
+            );
+        } catch (RuntimeException $e) {
+            return back()
+                ->withErrors([
+                    'publication_id' => $e->getMessage(),
+                ])
+                ->withInput();
+        }
+
+        return redirect()
+            ->route(
+                'media.print-orders.show',
+                $order
+            )
+            ->with(
+                'success',
+                "Print order {$order->order_number} created!"
+            );
     }
 
     /**
-     * Order created from an Approved Print Plan — ordered_quantity
-     * always comes from the plan's final_quantity.
+     * Store a Print Order from an Approved Print Plan.
+     *
+     * This remains available as an optional / legacy flow.
+     *
+     * The normal operational Print Order flow is the
+     * demand-driven store() method above.
      */
-    public function storeFromPlan(StorePrintOrderFromPlanRequest $request, PrintPlan $printPlan): RedirectResponse
-    {
+    public function storeFromPlan(
+        StorePrintOrderFromPlanRequest $request,
+        PrintPlan $printPlan
+    ): RedirectResponse {
         try {
             $order = $this->printOrderService->createFromPlan(
                 plan: $printPlan,
-                companyId: session('company_id'),
-                createdBy: auth()->id(),
+                companyId: (int) session('company_id'),
+                createdBy: (int) auth()->id(),
                 data: $request->validated(),
             );
         } catch (RuntimeException $e) {
-            return back()->withErrors(['print_plan_id' => $e->getMessage()])->withInput();
+            return back()
+                ->withErrors([
+                    'print_plan_id' => $e->getMessage(),
+                ])
+                ->withInput();
         }
 
-        return redirect()->route('media.print-orders.show', $order)
-            ->with('success', "Print order {$order->order_number} created from the approved plan!");
+        return redirect()
+            ->route(
+                'media.print-orders.show',
+                $order
+            )
+            ->with(
+                'success',
+                "Print order {$order->order_number} created from the approved plan!"
+            );
     }
 
+    /**
+     * Display a Print Order.
+     */
     public function show(PrintOrder $printOrder)
     {
-        $this->authorize('view', $printOrder);
+        $this->authorize(
+            'view',
+            $printOrder
+        );
 
-        $printOrder->load('publication', 'vendor', 'printPlan', 'creator');
+        $printOrder->load(
+            'publication',
+            'vendor',
+            'printPlan',
+            'creator'
+        );
 
-        return view('media.print-orders.show', ['order' => $printOrder]);
+        return view(
+            'media.print-orders.show',
+            ['order' => $printOrder]
+        );
     }
 
+    /**
+     * Show the Draft Print Order edit form.
+     *
+     * Demand/buffer/final quantity are intentionally not
+     * recalculated here. They are fixed at order creation.
+     */
     public function edit(PrintOrder $printOrder)
     {
-        $this->authorize('update', $printOrder);
+        $this->authorize(
+            'update',
+            $printOrder
+        );
 
-        abort_unless($printOrder->status === PrintOrder::STATUS_DRAFT, 422, 'Only a Draft print order can be edited.');
+        abort_unless(
+            $printOrder->status === PrintOrder::STATUS_DRAFT,
+            422,
+            'Only a Draft print order can be edited.'
+        );
 
         $companyId = session('company_id');
-        $vendors = Vendor::where('company_id', $companyId)->where('is_active', true)->get();
 
-        return view('media.print-orders.edit', ['order' => $printOrder, 'vendors' => $vendors]);
-    }
+        $vendors = Vendor::where(
+            'company_id',
+            $companyId
+        )
+            ->where('is_active', true)
+            ->get();
 
-    public function update(UpdatePrintOrderRequest $request, PrintOrder $printOrder): RedirectResponse
-    {
-        $this->authorize('update', $printOrder);
-
-        abort_unless($printOrder->status === PrintOrder::STATUS_DRAFT, 422, 'Only a Draft print order can be edited.');
-
-        $printOrder->update($request->validated());
-
-        return redirect()->route('media.print-orders.show', $printOrder)
-            ->with('success', 'Print order updated!');
+        return view(
+            'media.print-orders.edit',
+            [
+                'order' => $printOrder,
+                'vendors' => $vendors,
+            ]
+        );
     }
 
     /**
-     * Draft -> Ordered. Confirms the order is placed with the press.
+     * Update a Draft Print Order.
      */
-    public function approve(PrintOrder $printOrder): RedirectResponse
-    {
-        $this->authorize('approve', $printOrder);
+    public function update(
+        UpdatePrintOrderRequest $request,
+        PrintOrder $printOrder
+    ): RedirectResponse {
+        $this->authorize(
+            'update',
+            $printOrder
+        );
+
+        abort_unless(
+            $printOrder->status === PrintOrder::STATUS_DRAFT,
+            422,
+            'Only a Draft print order can be edited.'
+        );
+
+        $printOrder->update(
+            $request->validated()
+        );
+
+        return redirect()
+            ->route(
+                'media.print-orders.show',
+                $printOrder
+            )
+            ->with(
+                'success',
+                'Print order updated!'
+            );
+    }
+
+    /**
+     * Draft -> Ordered.
+     *
+     * Confirms the order is placed with the press.
+     */
+    public function approve(
+        PrintOrder $printOrder
+    ): RedirectResponse {
+        $this->authorize(
+            'approve',
+            $printOrder
+        );
 
         try {
-            $this->printOrderService->approve($printOrder);
+            $this->printOrderService->approve(
+                $printOrder
+            );
         } catch (RuntimeException $e) {
-            return back()->withErrors(['status' => $e->getMessage()]);
+            return back()
+                ->withErrors([
+                    'status' => $e->getMessage(),
+                ]);
         }
 
-        return redirect()->route('media.print-orders.show', $printOrder)
-            ->with('success', 'Print order approved and marked as Ordered.');
+        return redirect()
+            ->route(
+                'media.print-orders.show',
+                $printOrder
+            )
+            ->with(
+                'success',
+                'Print order approved and marked as Ordered.'
+            );
     }
 
     /**
-     * Ordered -> Printing -> Printed -> Received, or -> Cancelled.
+     * Update Print Order status.
+     *
+     * Workflow:
+     *
+     * Ordered
+     *    ↓
+     * Printing
+     *    ↓
+     * Printed
+     *    ↓
+     * Received
+     *
+     * Or:
+     *
+     * Draft / Ordered / Printing
+     *            ↓
+     *        Cancelled
      */
-    public function updateStatus(UpdatePrintOrderStatusRequest $request, PrintOrder $printOrder): RedirectResponse
-    {
-        $this->authorize('updateStatus', $printOrder);
+    public function updateStatus(
+        UpdatePrintOrderStatusRequest $request,
+        PrintOrder $printOrder
+    ): RedirectResponse {
+        $this->authorize(
+            'updateStatus',
+            $printOrder
+        );
 
         try {
             match ($request->validated('status')) {
-                PrintOrder::STATUS_PRINTING  => $this->printOrderService->markPrinting($printOrder),
-                PrintOrder::STATUS_PRINTED   => $this->printOrderService->markPrinted($printOrder, (int) $request->validated('printed_quantity')),
-                PrintOrder::STATUS_RECEIVED  => $this->printOrderService->markReceived($printOrder, (int) $request->validated('received_quantity')),
-                PrintOrder::STATUS_CANCELLED => $this->printOrderService->cancel($printOrder),
+                PrintOrder::STATUS_PRINTING =>
+                    $this->printOrderService->markPrinting(
+                        $printOrder
+                    ),
+
+                PrintOrder::STATUS_PRINTED =>
+                    $this->printOrderService->markPrinted(
+                        $printOrder,
+                        (int) $request->validated(
+                            'printed_quantity'
+                        )
+                    ),
+
+                PrintOrder::STATUS_RECEIVED =>
+                    $this->printOrderService->markReceived(
+                        $printOrder,
+                        (int) $request->validated(
+                            'received_quantity'
+                        )
+                    ),
+
+                PrintOrder::STATUS_CANCELLED =>
+                    $this->printOrderService->cancel(
+                        $printOrder
+                    ),
             };
         } catch (RuntimeException $e) {
-            return back()->withErrors(['status' => $e->getMessage()]);
+            return back()
+                ->withErrors([
+                    'status' => $e->getMessage(),
+                ]);
         }
 
-        return redirect()->route('media.print-orders.show', $printOrder)
-            ->with('success', 'Print order status updated.');
+        return redirect()
+            ->route(
+                'media.print-orders.show',
+                $printOrder
+            )
+            ->with(
+                'success',
+                'Print order status updated.'
+            );
     }
 
     /**
-     * Print Order PDF — reuses the existing barryvdh/laravel-dompdf
-     * setup already used by VoucherController::downloadPdf(); no new
-     * PDF library is introduced.
+     * Download Print Order PDF.
+     *
+     * Reuses the existing DomPDF setup.
      */
-    public function downloadPdf(PrintOrder $printOrder)
-    {
-        $this->authorize('print', $printOrder);
+    public function downloadPdf(
+        PrintOrder $printOrder
+    ) {
+        $this->authorize(
+            'print',
+            $printOrder
+        );
 
-        $printOrder->loadMissing(['publication', 'vendor', 'printPlan', 'creator', 'company']);
+        $printOrder->loadMissing([
+            'publication',
+            'vendor',
+            'printPlan',
+            'creator',
+            'company',
+        ]);
 
         $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView(
             'media.print-orders.pdf',
             ['order' => $printOrder]
         )->setPaper('a4');
 
-        return $pdf->download($printOrder->order_number . '.pdf');
+        return $pdf->download(
+            $printOrder->order_number . '.pdf'
+        );
     }
 }

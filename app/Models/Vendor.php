@@ -5,23 +5,26 @@ namespace App\Models;
 use App\Models\Concerns\BelongsToCompany;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Models\Account;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Vendor extends Model
 {
     use SoftDeletes, BelongsToCompany;
 
     protected $fillable = [
-        'company_id',
-        'name',
-        'phone',
-        'email',
-        'address',
-        'trade_license',
-        'tin',
-        'opening_balance',
-        'balance_type',
-        'is_active',
-    ];
+    'company_id',
+    'account_id',
+    'name',
+    'phone',
+    'email',
+    'address',
+    'trade_license',
+    'tin',
+    'opening_balance',
+    'balance_type',
+    'is_active',
+];
 
     public function company()
     {
@@ -37,4 +40,9 @@ class Vendor extends Model
     {
         return $this->hasMany(PurchaseBill::class);
     }
+    public function account(): BelongsTo
+    {
+        return $this->belongsTo(Account::class);
+    }
+
 }

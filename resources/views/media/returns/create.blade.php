@@ -89,22 +89,42 @@
 
 <script>
 let rowIndex = 0;
-const allParties = @json($distributions->flatMap(fn($d) => $d->items ?? collect())->pluck('party')->filter()->unique('id')->values());
+
+@php
+    $allParties = $distributions
+        ->flatMap(fn ($d) => $d->items ?? collect())
+        ->pluck('party')
+        ->filter()
+        ->unique('id')
+        ->values();
+
+    $allDistributions = $distributions->map(fn ($d) => [
+        'id' => $d->id,
+        'publication_id' => $d->publication_id,
+        'items' => $d->items
+            ? $d->items->map(fn ($i) => [
+                'media_party_id' => $i->media_party_id,
+                'party_name' => optional($i->party)->name,
+                'net_quantity' => $i->net_quantity,
+                'paid_quantity' => $i->paid_quantity,
+                'free_quantity' => $i->free_quantity,
+            ])->values()
+            : [],
+    ])->values();
+
+    $allPartiesFlat = \App\Models\MediaParty::where(
+        'company_id',
+        session('company_id')
+    )->active()->get(['id', 'name', 'type']);
+@endphp
+
+const allParties = {{ Illuminate\Support\Js::from($allParties) }};
 
 // All parties across all distributions for manual entry
-const allDistributions = @json($distributions->map(fn($d) => [
-    'id' => $d->id,
-    'publication_id' => $d->publication_id,
-    'items' => $d->items ? $d->items->map(fn($i) => [
-        'media_party_id' => $i->media_party_id,
-        'party_name' => optional($i->party)->name,
-        'net_quantity' => $i->net_quantity,
-        'paid_quantity' => $i->paid_quantity,
-        'free_quantity' => $i->free_quantity,
-    ]) : []
-]));
+const allDistributions = {{ Illuminate\Support\Js::from($allDistributions) }};
 
-const allPartiesFlat = @json(\App\Models\MediaParty::where('company_id', session('company_id'))->active()->get(['id','name','type']));
+const allPartiesFlat = {{ Illuminate\Support\Js::from($allPartiesFlat) }};
+
 
 function buildPartyOptions(parties) {
     return parties.map(p => `<option value="${p.id}">${p.name} (${p.type})</option>`).join('');

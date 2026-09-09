@@ -15,25 +15,16 @@ class DashboardController extends Controller
         $year       = $request->integer('year', now()->year);
         $company_id = session('company_id');
 
-        // ---------------------------------------------------------------
-        // Ledger Entry Constraint — company + non-reversed entries only.
-        // এটাই সেই fix: BalanceSheetController-এর মতো is_reversed = false
-        // ফিল্টার এখানেও প্রয়োগ করা হলো, যাতে cancelled ভাউচারের entry
-        // dashboard-এর balance-এ ভুলভাবে যোগ না হয়।
-        // ---------------------------------------------------------------
+        // ── Ledger constraint: company-scoped, non-reversed only ─────────
         $entryConstraint = function ($query) use ($company_id) {
-            $query->where('ledger_entries.company_id', $company_id)
-                  ->where('ledger_entries.is_reversed', false);
+        $query->where('ledger_entries.company_id', $company_id);
+
         };
 
-        // ---------------------------------------------------------------
-        // Balance Calculator — Account::getCurrentBalanceAttribute()-এর
-        // বদলে এখানে ব্যবহার করা হচ্ছে, কারণ eager-loaded ledgerEntries
-        // কালেকশনের উপর কাজ করে, প্রতি account-এ আলাদা query চালায় না।
-        // ---------------------------------------------------------------
+        // ── Balance calculator (eager-loaded entries, zero extra queries) ─
         $calculateBalance = static function (Account $account): float {
-            $debit   = (float) $account->ledgerEntries->sum('debit_amount');
-            $credit  = (float) $account->ledgerEntries->sum('credit_amount');
+            $debit   = (float) $account->allLedgerEntries->sum('debit_amount');
+            $credit  = (float) $account->allLedgerEntries->sum('credit_amount');
             $opening = (float) ($account->opening_balance ?? 0);
 
             return $account->isDebitNormal()
@@ -41,14 +32,9 @@ class DashboardController extends Controller
                 : $opening + ($credit - $debit);
         };
 
-        // ---------------------------------------------------------------
-        // সব account একবারে লোড, ledgerEntries eager-load সহ।
-        // আগে যেখানে ৭ সেট account-এর জন্য আলাদা আলাদা query +
-        // প্রতি account-এ ২টা করে accessor query চলত (১০০+ query),
-        // এখন মোট মাত্র ২টা query (accounts + ledger entries)।
-        // ---------------------------------------------------------------
+        // ── Load all accounts once (2 queries total) ─────────────────────
         $allAccounts = Account::query()
-            ->with(['ledgerEntries' => $entryConstraint])
+            ->with(['allLedgerEntries' => $entryConstraint])
             ->where('company_id', $company_id)
             ->get();
 
@@ -61,94 +47,68 @@ class DashboardController extends Controller
         $totalAssets      = $assetAccounts->sum($calculateBalance);
         $totalLiabilities = $liabilityAccounts->sum($calculateBalance);
         $totalEquity      = $equityAccounts->sum($calculateBalance);
+        $totalReceivable  = $assetAccounts->where('nature', 'Customer')->sum($calculateBalance);
+        $totalPayable     = $liabilityAccounts->where('nature', 'Supplier')->sum($calculateBalance);
 
-        $totalReceivable = $assetAccounts
-            ->where('nature', 'Customer')
-            ->sum($calculateBalance);
-
-        $totalPayable = $liabilityAccounts
-            ->where('nature', 'Supplier')
-            ->sum($calculateBalance);
-
-        // ---------------------------------------------------------------
-        // 1. REVENUE — Income type accounts থেকে ledger entries
-        // ---------------------------------------------------------------
+        // ── Revenue ───────────────────────────────────────────────────────
         $incomeAccountIds = $incomeAccounts->pluck('id');
 
-        $totalRevenue = LedgerEntry::where('company_id', $company_id)
+        $totalRevenue = (float) LedgerEntry::where('company_id', $company_id)
             ->whereIn('account_id', $incomeAccountIds)
             ->where('is_reversed', false)
             ->whereYear('entry_date', $year)
-            ->sum('credit_amount') ?? 0;
+            ->sum('credit_amount');
 
         $revenueTrend = LedgerEntry::where('company_id', $company_id)
             ->whereIn('account_id', $incomeAccountIds)
             ->where('is_reversed', false)
             ->whereYear('entry_date', $year)
             ->selectRaw('MONTH(entry_date) as m, SUM(credit_amount) as total')
-            ->groupBy('m')
-            ->orderBy('m')
-            ->pluck('total', 'm')
-            ->toArray();
+            ->groupBy('m')->orderBy('m')
+            ->pluck('total', 'm')->toArray();
 
         $revenueTrend = $this->fillTwelveMonths($revenueTrend);
 
-        // ---------------------------------------------------------------
-        // 2. EXPENSES — Expense type accounts থেকে ledger entries
-        // ---------------------------------------------------------------
+        // ── Expenses ──────────────────────────────────────────────────────
         $expenseAccountIds = $expenseAccounts->pluck('id');
 
-        $totalExpenses = LedgerEntry::where('company_id', $company_id)
+        $totalExpenses = (float) LedgerEntry::where('company_id', $company_id)
             ->whereIn('account_id', $expenseAccountIds)
             ->where('is_reversed', false)
             ->whereYear('entry_date', $year)
-            ->sum('debit_amount') ?? 0;
+            ->sum('debit_amount');
 
         $expenseTrend = LedgerEntry::where('company_id', $company_id)
             ->whereIn('account_id', $expenseAccountIds)
             ->where('is_reversed', false)
             ->whereYear('entry_date', $year)
             ->selectRaw('MONTH(entry_date) as m, SUM(debit_amount) as total')
-            ->groupBy('m')
-            ->orderBy('m')
-            ->pluck('total', 'm')
-            ->toArray();
+            ->groupBy('m')->orderBy('m')
+            ->pluck('total', 'm')->toArray();
 
         $expenseTrend = $this->fillTwelveMonths($expenseTrend);
 
-        // ---------------------------------------------------------------
-        // 3. NET PROFIT
-        // ---------------------------------------------------------------
+        // ── Net profit ────────────────────────────────────────────────────
         $netProfit      = $totalRevenue - $totalExpenses;
         $netProfitTrend = array_map(
-            fn($rev, $exp) => $rev - $exp,
+            fn($r, $e) => $r - $e,
             $revenueTrend,
             $expenseTrend
         );
 
-        // ---------------------------------------------------------------
-        // 4. PENDING INVOICES
-        // ---------------------------------------------------------------
+        // ── Invoices ──────────────────────────────────────────────────────
         $pendingOverdueCount = Invoice::where('company_id', $company_id)
-            ->where('status', 'unpaid')
-            ->where('due_date', '<', now())
-            ->count();
+            ->where('status', 'unpaid')->where('due_date', '<', now())->count();
 
         $pendingDueCount = Invoice::where('company_id', $company_id)
-            ->where('status', 'unpaid')
-            ->where('due_date', '>=', now())
-            ->count();
+            ->where('status', 'unpaid')->where('due_date', '>=', now())->count();
 
         $pendingTotalCount = $pendingOverdueCount + $pendingDueCount;
 
-        // ---------------------------------------------------------------
-        // 5. MONTHS
-        // ---------------------------------------------------------------
+        // ── Months ────────────────────────────────────────────────────────
         $months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-        // ---------------------------------------------------------------
-        // 6. TOP EXPENSE CATEGORIES — Account নাম অনুযায়ী
-        // ---------------------------------------------------------------
+        // ── Top expense categories ────────────────────────────────────────
         $expenseCategories = LedgerEntry::where('ledger_entries.company_id', $company_id)
             ->join('accounts', 'ledger_entries.account_id', '=', 'accounts.id')
             ->whereIn('ledger_entries.account_id', $expenseAccountIds)
@@ -165,9 +125,7 @@ class DashboardController extends Controller
             $expenseCategories = ['No Expense Data' => 0];
         }
 
-        // ---------------------------------------------------------------
-        // 7. CASH FLOW TREND
-        // ---------------------------------------------------------------
+        // ── Cash flow labels ──────────────────────────────────────────────
         $cashFlowLabels  = [];
         $cashFlowInflow  = [];
         $cashFlowOutflow = [];
@@ -178,9 +136,7 @@ class DashboardController extends Controller
             $cashFlowOutflow[] = $expenseTrend[$m - 1] ?? 0;
         }
 
-        // ---------------------------------------------------------------
-        // CASH & BANK BALANCE (chart-of-accounts side, ledger-based)
-        // ---------------------------------------------------------------
+        // ── Cash & Bank (ledger-based) ────────────────────────────────────
         $cashAccounts       = $assetAccounts->where('nature', 'Cash');
         $bankAccountsLedger = $assetAccounts->where('nature', 'Bank');
 
@@ -188,17 +144,14 @@ class DashboardController extends Controller
         $totalBank = $bankAccountsLedger->sum($calculateBalance);
 
         $cashBankDetails = $cashAccounts->merge($bankAccountsLedger)
-            ->map(fn(Account $account) => (object)[
-                'name'    => $account->account_name,
-                'nature'  => $account->nature,
-                'balance' => $calculateBalance($account),
+            ->map(fn(Account $a) => (object)[
+                'name'    => $a->account_name,
+                'nature'  => $a->nature,
+                'balance' => $calculateBalance($a),
             ])
             ->values();
 
-        // ---------------------------------------------------------------
-        // 8. BANK ACCOUNTS (BankAccount module — এটা আলাদা টেবিল,
-        //    chart-of-accounts ledger-এর সাথে সরাসরি সংযুক্ত নয়)
-        // ---------------------------------------------------------------
+        // ── Bank accounts module ──────────────────────────────────────────
         $bankAccounts = BankAccount::where('company_id', $company_id)
             ->where('is_active', true)
             ->orderByDesc('balance')
@@ -208,9 +161,7 @@ class DashboardController extends Controller
                 return $account;
             });
 
-        // ---------------------------------------------------------------
-        // 9. RECENT ACTIVITY — ledger entries থেকে
-        // ---------------------------------------------------------------
+        // ── Recent activity ───────────────────────────────────────────────
         $recentActivity = LedgerEntry::where('ledger_entries.company_id', $company_id)
             ->join('accounts', 'ledger_entries.account_id', '=', 'accounts.id')
             ->where('ledger_entries.is_reversed', false)
@@ -230,6 +181,7 @@ class DashboardController extends Controller
                 'type'   => $e->debit_amount > 0 ? 'Debit' : 'Credit',
                 'amount' => $e->debit_amount > 0 ? $e->debit_amount : $e->credit_amount,
                 'ref'    => $e->voucher_number ?? $e->ref,
+                'desc'   => $e->description,
             ]);
 
         return view('dashboard.index', compact(
