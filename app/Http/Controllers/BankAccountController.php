@@ -6,6 +6,10 @@ namespace App\Http\Controllers;
 
 use App\Models\Account;
 use App\Models\BankAccount;
+use App\Models\FinancialYear;
+use App\Models\Transaction;
+use App\Models\TransactionDetail;
+use App\Models\VoucherType;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -79,11 +83,14 @@ class BankAccountController extends Controller
             $validated,
             $companyId
         ) {
+            $openingBalance = (string) $validated['balance'];
+
             /*
-             * Create the Accounting Account first.
-             *
-             * Bank accounts are Assets and have Debit-normal balances.
-             */
+            * Create the Accounting Account.
+            *
+            * Opening balance must remain zero here because the actual
+            * opening balance will be recorded through an Opening Voucher.
+            */
             $account = new Account([
                 'company_id'      => $companyId,
                 'account_name'    => $this->makeAccountingAccountName(
@@ -97,7 +104,7 @@ class BankAccountController extends Controller
                 'color'           => '#2563eb',
                 'is_system'       => false,
                 'is_active'       => true,
-                'opening_balance' => $validated['balance'],
+                'opening_balance' => '0.00',
                 'balance_type'    => Account::defaultBalanceType(
                     Account::TYPE_ASSET
                 ),
@@ -111,9 +118,105 @@ class BankAccountController extends Controller
             $account->save();
 
             /*
-             * Create the physical BankAccount and link it
-             * to the Accounting Account.
-             */
+            * Create Opening Voucher:
+            *
+            * Dr. Bank Account
+            * Cr. Owner's Capital
+            */
+            if (bccomp($openingBalance, '0.00', 2) > 0) {
+                $capitalAccount = Account::query()
+                    ->where('company_id', $companyId)
+                    ->where('account_type', Account::TYPE_EQUITY)
+                    ->where('account_name', "Owner's Capital")
+                    ->where('is_active', true)
+                    ->first();
+
+                if (! $capitalAccount) {
+                    throw new \RuntimeException(
+                        "Owner's Capital account was not found for this company."
+                    );
+                }
+
+                $financialYear = FinancialYear::query()
+                    ->where('company_id', $companyId)
+                    ->where('is_active', true)
+                    ->orderByDesc('start_date')
+                    ->first();
+
+                if (! $financialYear) {
+                    throw new \RuntimeException(
+                        'No active financial year found for this company.'
+                    );
+                }
+
+                $voucherType = VoucherType::query()
+                    ->where('company_id', $companyId)
+                    ->where(
+                        'nature',
+                        VoucherType::NATURE_OPENING
+                    )
+                    ->where('is_active', true)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $voucherType) {
+                    $voucherType = VoucherType::create([
+                        'company_id'  => $companyId,
+                        'name'        => 'Opening Voucher',
+                        'code'        => 'OPENING',
+                        'nature'      => VoucherType::NATURE_OPENING,
+                        'prefix'      => 'OB',
+                        'last_number' => 0,
+                        'is_active'   => true,
+                        'description' => 'Opening balance voucher',
+                    ]);
+                }
+
+                $voucherNumber = $voucherType->generateNextVoucherNumber();
+
+                $now = now();
+
+                $transaction = Transaction::create([
+                    'company_id'        => $companyId,
+                    'financial_year_id' => $financialYear->id,
+                    'voucher_type_id'   => $voucherType->id,
+                    'voucher_number'    => $voucherNumber,
+                    'voucher_date'      => $now->toDateString(),
+                    'narration'         => "Opening Balance - {$account->account_name}",
+                    'total_debit'       => $openingBalance,
+                    'total_credit'      => $openingBalance,
+                    'status'            => Transaction::STATUS_APPROVED,
+                    'created_by'        => auth()->id(),
+                    'approved_by'       => auth()->id(),
+                    'approved_at'       => $now,
+                ]);
+
+                TransactionDetail::create([
+                    'transaction_id' => $transaction->id,
+                    'account_id'     => $account->id,
+                    'debit_amount'   => $openingBalance,
+                    'credit_amount'  => '0.00',
+                    'description'    => "Opening Balance - {$account->account_name}",
+                    'sort_order'     => 1,
+                ]);
+
+                TransactionDetail::create([
+                    'transaction_id' => $transaction->id,
+                    'account_id'     => $capitalAccount->id,
+                    'debit_amount'   => '0.00',
+                    'credit_amount'  => $openingBalance,
+                    'description'    => "Opening Capital - {$account->account_name}",
+                    'sort_order'     => 2,
+                ]);
+
+                app(\App\Services\LedgerPostingService::class)
+                    ->post($transaction);
+            }
+
+            /*
+            * Create the physical BankAccount and link it
+            * to the Accounting Account.
+            */
             return BankAccount::create([
                 'company_id'     => $companyId,
                 'account_id'     => $account->id,
@@ -123,9 +226,9 @@ class BankAccountController extends Controller
                 'branch_name'    => $validated['branch_name'] ?? null,
 
                 /*
-                 * Keep the submitted opening value for compatibility.
-                 * Actual running balance comes from Accounting Account.
-                 */
+                * Keep the submitted value for the physical bank
+                * account record. Accounting balance comes from ledger.
+                */
                 'balance'        => $validated['balance'],
                 'is_active'      => true,
             ]);

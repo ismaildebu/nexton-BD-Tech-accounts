@@ -122,13 +122,44 @@
                             {{ number_format($runningCredit, 2) }}
                         </p>
                     </div>
-                    <div class="text-center">
-                        <p class="text-xs text-blue-600 dark:text-blue-400 font-medium uppercase">Balance</p>
-                        <p class="text-lg font-bold font-mono {{ ($runningDebit - $runningCredit) >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400' }}">
-                            {{ number_format(abs($runningDebit - $runningCredit), 2) }}
-                            {{ ($runningDebit - $runningCredit) >= 0 ? 'Dr' : 'Cr' }}
-                        </p>
-                    </div>
+                    
+                                @php
+                                    $isDebitNormal = $selectedAccount->isDebitNormal();
+
+                                    if ($isDebitNormal) {
+                                        $displayBalance =
+                                            $openingBalance
+                                            + $runningDebit
+                                            - $runningCredit;
+
+                                        $displayBalanceType =
+                                            $displayBalance >= 0 ? 'Dr' : 'Cr';
+                                    } else {
+                                        $displayBalance =
+                                            $openingBalance
+                                            + $runningCredit
+                                            - $runningDebit;
+
+                                        $displayBalanceType =
+                                            $displayBalance >= 0 ? 'Cr' : 'Dr';
+                                    }
+                                @endphp
+
+                                <div class="text-center">
+                                    <p class="text-xs text-blue-600 dark:text-blue-400 font-medium uppercase">
+                                        Balance
+                                    </p>
+
+                                    <p class="text-lg font-bold font-mono
+                                        {{ $displayBalance >= 0
+                                            ? 'text-green-600 dark:text-green-400'
+                                            : 'text-red-600 dark:text-red-400' }}">
+
+                                        {{ number_format(abs($displayBalance), 2) }}
+                                        {{ $displayBalanceType }}
+                                    </p>
+                                </div>
+
                 </div>
             </div>
         </div>

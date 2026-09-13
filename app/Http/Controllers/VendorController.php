@@ -7,6 +7,7 @@ use App\Models\Account;
 use App\Models\Vendor;
 use App\Services\PlanLimitService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -40,6 +41,113 @@ class VendorController extends Controller
             ->get();
 
         return view('vendors.create', compact('accounts'));
+    }
+
+    public function bulkCreate()
+    {
+        $companyId = session('company_id');
+
+        $accounts = Account::where('company_id', $companyId)
+            ->where('is_active', true)
+            ->orderBy('account_name')
+            ->get();
+
+        return view('vendors.create', compact('accounts'));
+    }
+
+    public function bulkStore(Request $request)
+    {
+        $companyId = session('company_id');
+
+        $request->validate([
+            'vendors' => ['required', 'array', 'min:1'],
+
+            'vendors.*.name' => [
+                'required',
+                'string',
+                'max:255',
+            ],
+
+            'vendors.*.account_id' => [
+                'required',
+                'integer',
+                Rule::exists('accounts', 'id')
+                    ->where(fn ($q) => $q->where('company_id', $companyId)),
+            ],
+
+            'vendors.*.phone' => [
+                'nullable',
+                'string',
+                'max:20',
+            ],
+
+            'vendors.*.email' => [
+                'nullable',
+                'email',
+                'max:255',
+            ],
+
+            'vendors.*.address' => [
+                'nullable',
+                'string',
+            ],
+
+            'vendors.*.trade_license' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+
+            'vendors.*.tin' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+
+            'vendors.*.opening_balance' => [
+                'nullable',
+                'numeric',
+                'min:0',
+            ],
+
+            'vendors.*.balance_type' => [
+                'nullable',
+                Rule::in(['Payable', 'Advance']),
+            ],
+        ]);
+
+        $vendors = $request->input('vendors');
+
+        $this->enforcePlanLimit(
+            $this->planLimitService,
+            $companyId,
+            'vendors',
+            Vendor::where('company_id', $companyId)->count() + count($vendors),
+        );
+
+        DB::transaction(function () use ($vendors, $companyId) {
+            foreach ($vendors as $vendor) {
+                Vendor::create([
+                    'company_id' => $companyId,
+                    'account_id' => $vendor['account_id'],
+                    'name' => $vendor['name'],
+                    'phone' => $vendor['phone'] ?? null,
+                    'email' => $vendor['email'] ?? null,
+                    'address' => $vendor['address'] ?? null,
+                    'trade_license' => $vendor['trade_license'] ?? null,
+                    'tin' => $vendor['tin'] ?? null,
+                    'opening_balance' => $vendor['opening_balance'] ?? 0,
+                    'balance_type' => $vendor['balance_type'] ?? 'Payable',
+                    'is_active' => true,
+                ]);
+            }
+        });
+
+        return redirect()->route('vendors.index')
+            ->with(
+                'success',
+                count($vendors) . ' vendors created successfully!'
+            );
     }
 
     public function store(Request $request)

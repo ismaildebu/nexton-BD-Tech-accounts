@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use App\Models\FinancialYear;
+use App\Models\VoucherType;
 
 class CompanyController extends Controller
 {
@@ -115,6 +116,49 @@ class CompanyController extends Controller
                     'end_date'   => now()->endOfYear()->toDateString(),
                     'is_active'  => true,
                 ]);
+
+
+                // Auto-create the company's default voucher types.
+                    $voucherTypes = [
+                        [
+                            'name'   => 'Journal Voucher',
+                            'code'   => 'JV',
+                            'nature' => VoucherType::NATURE_JOURNAL,
+                        ],
+                        [
+                            'name'   => 'Payment Voucher',
+                            'code'   => 'PV',
+                            'nature' => VoucherType::NATURE_PAYMENT,
+                        ],
+                        [
+                            'name'   => 'Receipt Voucher',
+                            'code'   => 'RV',
+                            'nature' => VoucherType::NATURE_RECEIPT,
+                        ],
+                        [
+                            'name'   => 'Contra Voucher',
+                            'code'   => 'CV',
+                            'nature' => VoucherType::NATURE_CONTRA,
+                        ],
+                        [
+                            'name'   => 'Opening Voucher',
+                            'code'   => 'OV',
+                            'nature' => VoucherType::NATURE_OPENING,
+                        ],
+                    ];
+
+                    foreach ($voucherTypes as $voucherType) {
+                        VoucherType::create([
+                            'company_id' => $company->id,
+                            'name'       => $voucherType['name'],
+                            'code'       => $voucherType['code'],
+                            'nature'     => $voucherType['nature'],
+                            'is_active'  => true,
+                        ]);
+                    }
+
+
+
 
             // This newly created Admin becomes the billing owner of the
             // company (governs the "companies"/"users" plan limits going

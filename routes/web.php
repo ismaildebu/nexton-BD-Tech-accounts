@@ -22,6 +22,12 @@ require __DIR__ . '/dashboard.php';
 // System Management
 require __DIR__ . '/system.php';
 
+// Billing & Subscription
+require __DIR__ . '/billing.php';
+
+// Admin Routes
+require __DIR__ . '/admin.php';
+
 // Company Management
 require __DIR__ . '/company.php';
 

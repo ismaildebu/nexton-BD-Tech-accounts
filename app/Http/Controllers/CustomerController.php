@@ -20,16 +20,23 @@ class CustomerController extends Controller
     public function index()
     {
         $company_id = session('company_id');
+
         $customers = Customer::where('company_id', $company_id)
-                        ->withCount('invoices')
-                        ->orderBy('name')
-                        ->get();
+            ->withCount('invoices')
+            ->orderBy('name')
+            ->get();
+
         return view('customers.index', compact('customers'));
     }
 
     public function create()
     {
         return view('customers.create');
+    }
+
+    public function bulkCreate()
+    {
+        return view('customers.bulk-create');
     }
 
     public function store(Request $request)
@@ -40,21 +47,23 @@ class CustomerController extends Controller
             'email' => 'nullable|email|max:255',
         ]);
 
+        $companyId = (int) session('company_id');
+
         $this->enforcePlanLimit(
             $this->planLimitService,
-            session('company_id'),
+            $companyId,
             'customers',
-            Customer::where('company_id', session('company_id'))->count(),
+            Customer::where('company_id', $companyId)->count(),
         );
 
         Customer::create([
-            'company_id'      => session('company_id'),
+            'company_id'      => $companyId,
             'name'            => $request->name,
             'phone'           => $request->phone,
             'email'           => $request->email,
             'address'         => $request->address,
             'trade_license'   => $request->trade_license,
-            'tin'             => $request->tin,
+            'tin'              => $request->tin,
             'customer_type'   => $request->customer_type ?? 'Individual',
             'credit_limit'    => $request->credit_limit ?? 0,
             'opening_balance' => $request->opening_balance ?? 0,
@@ -64,7 +73,58 @@ class CustomerController extends Controller
         ]);
 
         return redirect()->route('customers.index')
-                         ->with('success', 'Customer created successfully!');
+            ->with('success', 'Customer created successfully!');
+    }
+
+    public function bulkStore(Request $request)
+    {
+        $request->validate([
+            'customers' => 'required|array|min:1',
+
+            'customers.*.name' => 'required|string|max:255',
+            'customers.*.phone' => 'nullable|string|max:20',
+            'customers.*.email' => 'nullable|email|max:255',
+            'customers.*.customer_type' => 'nullable|in:Individual,Business',
+            'customers.*.credit_limit' => 'nullable|numeric|min:0',
+            'customers.*.address' => 'nullable|string|max:1000',
+            'customers.*.trade_license' => 'nullable|string|max:255',
+            'customers.*.tin' => 'nullable|string|max:255',
+            'customers.*.opening_balance' => 'nullable|numeric|min:0',
+            'customers.*.balance_type' => 'nullable|in:Receivable,Advance',
+            'customers.*.notes' => 'nullable|string|max:2000',
+        ]);
+
+        $companyId = (int) session('company_id');
+        $customers = $request->input('customers', []);
+        $customerCount = count($customers);
+
+        $this->enforcePlanLimit(
+            $this->planLimitService,
+            $companyId,
+            'customers',
+            Customer::where('company_id', $companyId)->count() + $customerCount,
+        );
+
+        foreach ($customers as $customer) {
+            Customer::create([
+                'company_id'      => $companyId,
+                'name'            => $customer['name'],
+                'phone'           => $customer['phone'] ?? null,
+                'email'           => $customer['email'] ?? null,
+                'address'         => $customer['address'] ?? null,
+                'trade_license'   => $customer['trade_license'] ?? null,
+                'tin'              => $customer['tin'] ?? null,
+                'customer_type'   => $customer['customer_type'] ?? 'Individual',
+                'credit_limit'    => $customer['credit_limit'] ?? 0,
+                'opening_balance' => $customer['opening_balance'] ?? 0,
+                'balance_type'    => $customer['balance_type'] ?? 'Receivable',
+                'notes'           => $customer['notes'] ?? null,
+                'is_active'       => true,
+            ]);
+        }
+
+        return redirect()->route('customers.index')
+            ->with('success', $customerCount . ' customers created successfully!');
     }
 
     public function show(Customer $customer)
@@ -72,6 +132,7 @@ class CustomerController extends Controller
         $this->authorizeCompany($customer);
 
         $customer->load('invoices', 'salesOrders');
+
         return view('customers.show', compact('customer'));
     }
 
@@ -93,13 +154,21 @@ class CustomerController extends Controller
         ]);
 
         $customer->update($request->only([
-            'name', 'phone', 'email', 'address', 'trade_license',
-            'tin', 'customer_type', 'credit_limit', 'opening_balance',
-            'balance_type', 'notes',
+            'name',
+            'phone',
+            'email',
+            'address',
+            'trade_license',
+            'tin',
+            'customer_type',
+            'credit_limit',
+            'opening_balance',
+            'balance_type',
+            'notes',
         ]));
 
         return redirect()->route('customers.index')
-                         ->with('success', 'Customer updated!');
+            ->with('success', 'Customer updated!');
     }
 
     public function destroy(Customer $customer)
@@ -107,8 +176,9 @@ class CustomerController extends Controller
         $this->authorizeCompany($customer);
 
         $customer->delete();
+
         return redirect()->route('customers.index')
-                         ->with('success', 'Customer deleted!');
+            ->with('success', 'Customer deleted!');
     }
 
     /**

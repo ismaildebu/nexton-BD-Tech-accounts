@@ -316,35 +316,54 @@ class MediaReportController extends Controller
             'ref'         => 'Dist #' . $item->distribution->id,
         ]);
 
+        
         // Return items
         $returnQuery = MediaReturnItem::whereHas('mediaReturn', fn ($q) => $q
             ->where('company_id', $companyId)
             ->where('status', MediaReturn::STATUS_CONFIRMED))
             ->where('media_party_id', $party->id)
-            ->with(['mediaReturn' => fn ($q) => $q->with('publication')]);
+            ->with([
+                'mediaReturn' => fn ($q) => $q
+                    ->with([
+                        'publication',
+                        'distribution.items',
+                    ]),
+            ]);
 
         if ($request->filled('from_date')) {
             $returnQuery->whereHas('mediaReturn', fn ($q) => $q
                 ->whereDate('return_date', '>=', $request->from_date));
         }
+
         if ($request->filled('to_date')) {
             $returnQuery->whereHas('mediaReturn', fn ($q) => $q
                 ->whereDate('return_date', '<=', $request->to_date));
         }
 
-        $returnLines = $returnQuery->get()->map(fn ($item) => (object) [
-            'date'        => $item->mediaReturn->return_date,
-            'type'        => 'Return',
-            'publication' => $item->mediaReturn->publication?->name ?? '—',
-            'paid'        => 0,
-            'free'        => 0,
-            'total'       => 0,
-            'returned'    => $item->total_return_quantity,
-            'net'         => 0,
-            'dr_amount'   => 0.0,
-            'cr_amount'   => 0.0,
-            'ref'         => 'Return #' . $item->mediaReturn->id,
-        ]);
+        $returnLines = $returnQuery->get()->map(function ($item) {
+            $mediaReturn = $item->mediaReturn;
+
+            $distributionItem = $mediaReturn->distribution?->items
+                ->firstWhere('media_party_id', $item->media_party_id);
+
+            $rate = (float) ($distributionItem?->rate ?? 0);
+
+            $paidReturnAmount = (float) $item->paid_return_quantity * $rate;
+
+            return (object) [
+                'date'        => $mediaReturn->return_date,
+                'type'        => 'Return',
+                'publication' => $mediaReturn->publication?->name ?? '—',
+                'paid'        => $item->paid_return_quantity,
+                'free'        => $item->free_return_quantity,
+                'total'       => $item->total_return_quantity,
+                'returned'    => $item->total_return_quantity,
+                'net'         => 0,
+                'dr_amount'   => 0.0,
+                'cr_amount'   => $paidReturnAmount,
+                'ref'         => 'Return #' . $mediaReturn->id,
+            ];
+        });
 
         // Collection lines
         $collQuery = MediaCollection::withoutGlobalScopes()
@@ -376,17 +395,19 @@ class MediaReportController extends Controller
         $ledgerLines = $distLines->merge($returnLines)->merge($collLines)
             ->sortBy('date')->values();
 
-        $totalDistributed = $distLines->sum('dr_amount');
-        $totalCollected   = $collLines->sum('cr_amount');
+            $totalDistributed = $distLines->sum('dr_amount');
+            $totalReturnedAmount = $returnLines->sum('cr_amount');
+            $totalCollected = $collLines->sum('cr_amount');
 
-        $totals = [
-            'distributed' => $distLines->sum('total'),
-            'returned'    => $distLines->sum('returned'),
-            'net'         => $distLines->sum('net'),
-            'amount'      => $totalDistributed,
-            'collected'   => $totalCollected,
-            'balance'     => $totalDistributed - $totalCollected,
-        ];
+            $totals = [
+                'distributed' => $distLines->sum('total'),
+                'returned'    => $distLines->sum('returned'),
+                'net'         => $distLines->sum('net'),
+                'amount'      => $totalDistributed,
+                'collected'   => $totalCollected,
+                'balance'     => $totalDistributed - $totalReturnedAmount - $totalCollected,
+            ];
+            
 
         return [$party, $ledgerLines, $totals];
     }

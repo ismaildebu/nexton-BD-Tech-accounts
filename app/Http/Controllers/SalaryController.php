@@ -4,148 +4,320 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Models\Account;
+use App\Models\BankAccount;
 use App\Models\Employee;
 use App\Models\Salary;
+use App\Services\SalaryAccountingService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class SalaryController extends Controller
 {
-    /**
-     * Display salary records for the current company.
-     *
-     * BelongsToCompany global scope স্বয়ংক্রিয়ভাবে company filter করে।
-     */
     public function index(): View
     {
-        $salaries = Salary::with('employee')
+        $companyId = session('company_id');
+
+        $salaries = Salary::query()
+            ->with([
+                'employee',
+                'paymentAccount',
+                'transaction',
+            ])
             ->orderByDesc('year')
             ->orderByDesc('month')
             ->paginate(15);
 
-        return view('salaries.index', compact('salaries'));
+        $cashAccount = Account::query()
+            ->where('company_id', $companyId)
+            ->where('account_name', 'Cash in Hand')
+            ->where('is_active', true)
+            ->first();
+
+        $bankAccounts = BankAccount::query()
+            ->with('account')
+            ->where('company_id', $companyId)
+            ->where('is_active', true)
+            ->whereNotNull('account_id')
+            ->whereHas('account', function ($query) use ($companyId) {
+                $query
+                    ->where('company_id', $companyId)
+                    ->where('is_active', true);
+            })
+            ->orderBy('bank_name')
+            ->orderBy('account_name')
+            ->get();
+
+        return view(
+            'salaries.index',
+            compact(
+                'salaries',
+                'cashAccount',
+                'bankAccounts'
+            )
+        );
     }
 
-    /**
-     * Show the salary creation form.
-     *
-     * Employee::where('company_id',...) এর পরিবর্তে global scope কাজ করছে।
-     */
     public function create(): View
     {
-        $employees = Employee::where('is_active', true)
+        $employees = Employee::query()
+            ->where('is_active', true)
             ->orderBy('name')
             ->get();
 
         return view('salaries.create', compact('employees'));
     }
 
-    /**
-     * Store a new salary record.
-     *
-     * ✅ Fix: Employee cross-company IDOR বন্ধ করা হয়েছে।
-     *
-     * আগে শুধু 'exists:employees,id' দিয়ে validate করা হত।
-     * এর ফলে অন্য company-র employee_id দিলেও salary তৈরি হত।
-     *
-     * এখন Employee fetch-এ BelongsToCompany global scope কাজ করে —
-     * অন্য company-র employee হলে findOrFail() 404 দেবে।
-     */
     public function store(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'employee_id' => ['required', 'integer', 'exists:employees,id'],
-            'month'       => ['required', 'integer', 'min:1', 'max:12'],
-            'year'        => ['required', 'integer', 'min:2000', 'max:2100'],
-            'allowances'  => ['nullable', 'numeric', 'min:0'],
-            'deductions'  => ['nullable', 'numeric', 'min:0'],
+            'salaries' => [
+                'required',
+                'array',
+                'min:1',
+                'max:100',
+            ],
+
+            'salaries.*.employee_id' => [
+                'required',
+                'integer',
+                'exists:employees,id',
+            ],
+
+            'salaries.*.month' => [
+                'required',
+                'integer',
+                'min:1',
+                'max:12',
+            ],
+
+            'salaries.*.year' => [
+                'required',
+                'integer',
+                'min:2000',
+                'max:2100',
+            ],
+
+            'salaries.*.allowances' => [
+                'nullable',
+                'numeric',
+                'min:0',
+            ],
+
+            'salaries.*.deductions' => [
+                'nullable',
+                'numeric',
+                'min:0',
+            ],
         ]);
 
-        // ✅ BelongsToCompany global scope সক্রিয় — অন্য company-র
-        // employee_id দিলে এখানেই 404, salary তৈরি হবে না।
-        $employee = Employee::findOrFail($validated['employee_id']);
+        $companyId = session('company_id');
 
-        // Duplicate salary check — same company scope-এর মধ্যে
-        $alreadyExists = Salary::where('employee_id', $employee->id)
-            ->where('month', $validated['month'])
-            ->where('year', $validated['year'])
-            ->exists();
-
-        if ($alreadyExists) {
+        if (! $companyId) {
             return back()
-                ->withErrors(['employee_id' => 'A salary record for this employee already exists for the selected month/year.'])
-                ->withInput();
+                ->withInput()
+                ->withErrors([
+                    'salaries' => 'No company is currently selected.',
+                ]);
         }
 
-        $allowances = (float) ($validated['allowances'] ?? 0);
-        $deductions = (float) ($validated['deductions'] ?? 0);
-        $basic      = (float) $employee->basic_salary;
+        DB::transaction(function () use (
+            $validated,
+            $companyId
+        ): void {
+            $batchKeys = [];
 
-        Salary::create([
-            'company_id'   => (int) session('company_id'),
-            'employee_id'  => $employee->id,
-            'month'        => $validated['month'],
-            'year'         => $validated['year'],
-            'basic_salary' => $basic,
-            'allowances'   => $allowances,
-            'deductions'   => $deductions,
-            'net_salary'   => $basic + $allowances - $deductions,
-            'status'       => 'pending',
-        ]);
+            foreach ($validated['salaries'] as $index => $salaryData) {
+                $employee = Employee::query()
+                    ->where('company_id', $companyId)
+                    ->findOrFail((int) $salaryData['employee_id']);
+
+                if (
+                    (int) $employee->company_id
+                    !== (int) $companyId
+                ) {
+                    throw ValidationException::withMessages([
+                        "salaries.{$index}.employee_id" =>
+                            'Selected employee does not belong to the current company.',
+                    ]);
+                }
+
+                $month = (int) $salaryData['month'];
+                $year = (int) $salaryData['year'];
+
+                $batchKey =
+                    $employee->id . '-' . $month . '-' . $year;
+
+                if (isset($batchKeys[$batchKey])) {
+                    throw ValidationException::withMessages([
+                        "salaries.{$index}.employee_id" =>
+                            "Duplicate salary record submitted for {$employee->name} for {$month}/{$year}.",
+                    ]);
+                }
+
+                $batchKeys[$batchKey] = true;
+
+                $alreadyExists = Salary::query()
+                    ->where('company_id', $companyId)
+                    ->where('employee_id', $employee->id)
+                    ->where('month', $month)
+                    ->where('year', $year)
+                    ->exists();
+
+                if ($alreadyExists) {
+                    throw ValidationException::withMessages([
+                        "salaries.{$index}.employee_id" =>
+                            "A salary record already exists for {$employee->name} for {$month}/{$year}.",
+                    ]);
+                }
+
+                $allowances =
+                    (float) ($salaryData['allowances'] ?? 0);
+
+                $deductions =
+                    (float) ($salaryData['deductions'] ?? 0);
+
+                $basic =
+                    (float) $employee->basic_salary;
+
+                $netSalary =
+                    $basic + $allowances - $deductions;
+
+                if ($netSalary < 0) {
+                    throw ValidationException::withMessages([
+                        "salaries.{$index}.deductions" =>
+                            'Deductions cannot exceed the total salary amount.',
+                    ]);
+                }
+
+                Salary::create([
+                    'company_id' => (int) $companyId,
+                    'employee_id' => $employee->id,
+                    'month' => $month,
+                    'year' => $year,
+                    'basic_salary' => $basic,
+                    'allowances' => $allowances,
+                    'deductions' => $deductions,
+                    'net_salary' => $netSalary,
+                    'status' => 'pending',
+                ]);
+            }
+        });
+
+        $count = count($validated['salaries']);
 
         return redirect()
             ->route('salaries.index')
-            ->with('success', 'Salary record created successfully.');
+            ->with(
+                'success',
+                $count === 1
+                    ? 'Salary record created successfully.'
+                    : "{$count} salary records created successfully."
+            );
     }
 
-    /**
-     * Display the specified salary record.
-     *
-     * Route model binding + BelongsToCompany scope — অন্য company-র
-     * salary ID দিলে automatic 404। Manual authorizeCompany() দরকার নেই।
-     */
     public function show(Salary $salary): View
     {
-        $salary->load('employee');
+        $salary->load([
+            'employee',
+            'paymentAccount',
+            'transaction',
+        ]);
 
-        return view('salaries.show', compact('salary'));
+        return view(
+            'salaries.show',
+            compact('salary')
+        );
     }
 
-    /**
-     * Delete a salary record.
-     *
-     * শুধুমাত্র 'pending' salary delete করা যাবে।
-     */
     public function destroy(Salary $salary): RedirectResponse
     {
         if ($salary->status === 'paid') {
-            return back()->with('error', 'Paid salary records cannot be deleted.');
+            return back()->with(
+                'error',
+                'Paid salary records cannot be deleted.'
+            );
         }
 
         $salary->delete();
 
         return redirect()
             ->route('salaries.index')
-            ->with('success', 'Salary record deleted successfully.');
+            ->with(
+                'success',
+                'Salary record deleted successfully.'
+            );
     }
 
-    /**
-     * Mark a salary record as paid.
-     */
-    public function markPaid(Request $request, Salary $salary): RedirectResponse
-    {
-        if ($salary->status === 'paid') {
-            return back()->with('error', 'This salary record is already marked as paid.');
+    public function markPaid(
+        Request $request,
+        Salary $salary,
+        SalaryAccountingService $salaryAccountingService
+    ): RedirectResponse {
+        $validated = $request->validate([
+            'payment_account_id' => [
+                'required',
+                'integer',
+            ],
+        ]);
+
+        $companyId = session('company_id');
+
+        if (! $companyId) {
+            return back()
+                ->withInput()
+                ->withErrors([
+                    'payment_account_id' =>
+                        'No company is currently selected.',
+                ]);
         }
 
-        $salary->update([
-            'status'    => 'paid',
-            'paid_date' => now()->toDateString(),
-        ]);
+        if (
+            (int) $salary->company_id
+            !== (int) $companyId
+        ) {
+            abort(404);
+        }
+
+        if ($salary->transaction_id !== null) {
+            return back()->with(
+                'error',
+                'This salary already has an accounting transaction.'
+            );
+        }
+
+        if ($salary->status === 'paid') {
+            return back()->with(
+                'error',
+                'This salary record is already marked as paid.'
+            );
+        }
+
+        try {
+            $transaction =
+                $salaryAccountingService->postPayment(
+                    $salary,
+                    (int) $validated['payment_account_id']
+                );
+        } catch (\Throwable $exception) {
+            return back()
+                ->withInput()
+                ->with(
+                    'error',
+                    $exception->getMessage()
+                );
+        }
 
         return redirect()
             ->route('salaries.index')
-            ->with('success', 'Salary marked as paid.');
+            ->with(
+                'success',
+                'Salary marked as paid and Payment Voucher '
+                . $transaction->voucher_number
+                . ' created successfully.'
+            );
     }
 }

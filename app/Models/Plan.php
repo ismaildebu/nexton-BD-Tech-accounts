@@ -39,6 +39,7 @@ class Plan extends Model
     {
         return $this->hasMany(Subscription::class);
     }
+    
 
     /**
      * Convenience lookup for the plan every new user/company should

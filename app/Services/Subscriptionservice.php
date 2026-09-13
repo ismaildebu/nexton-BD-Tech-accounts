@@ -45,6 +45,8 @@ class SubscriptionService
      * Subscribe the user to the default (Free) plan. Idempotent: if the
      * user already has an active subscription, that subscription is
      * returned unchanged rather than creating a duplicate.
+     *
+     * Auto-creates a zero-amount PAID payment record for audit trail.
      */
     public function subscribeToFreePlan(User $user): Subscription
     {
@@ -68,12 +70,26 @@ class SubscriptionService
                 return $active;
             }
 
-            return Subscription::query()->create([
+            $subscription = Subscription::query()->create([
                 'user_id' => $lockedUser->id,
                 'plan_id' => $freePlan->id,
                 'status' => Subscription::STATUS_ACTIVE,
                 'starts_at' => now(),
             ]);
+
+            // Auto-create zero-amount PAID payment for free plan (audit trail)
+            SubscriptionPayment::query()->create([
+                'subscription_id' => $subscription->id,
+                'amount' => '0.00',
+                'currency' => 'BDT',
+                'status' => SubscriptionPayment::STATUS_PAID,
+                'payment_method' => 'free_plan',
+                'transaction_reference' => null,
+                'paid_at' => now(),
+                'metadata' => ['plan_type' => 'free'],
+            ]);
+
+            return $subscription;
         });
     }
 
@@ -83,8 +99,13 @@ class SubscriptionService
      * remains intact. Runs inside a DB transaction with a row lock on
      * the user to prevent concurrent activations from both succeeding.
      *
+     * Auto-creates a payment record based on the plan price:
+     * - Free plan: zero-amount PAID payment
+     * - Paid plan: full-amount PENDING payment (unless $paymentData overrides)
+     *
      * @param  array{amount: float|string, currency?: string, status?: string, payment_method?: string, transaction_reference?: string, paid_at?: \DateTimeInterface|string|null, metadata?: array}|null  $paymentData
      *         Optional payment to record against the new subscription.
+     *         If provided, these values override the default auto-created payment.
      */
     public function activatePlan(User $user, Plan $plan, ?array $paymentData = null): Subscription
     {
@@ -111,21 +132,52 @@ class SubscriptionService
                 'starts_at' => now(),
             ]);
 
-            if ($paymentData !== null) {
-                SubscriptionPayment::query()->create([
-                    'subscription_id' => $subscription->id,
-                    'amount' => $paymentData['amount'],
-                    'currency' => $paymentData['currency'] ?? 'BDT',
-                    'status' => $paymentData['status'] ?? SubscriptionPayment::STATUS_PENDING,
-                    'payment_method' => $paymentData['payment_method'] ?? null,
-                    'transaction_reference' => $paymentData['transaction_reference'] ?? null,
-                    'paid_at' => $paymentData['paid_at'] ?? null,
-                    'metadata' => $paymentData['metadata'] ?? null,
-                ]);
-            }
+            // Determine payment to record
+            $finalPaymentData = $paymentData ?? $this->buildDefaultPayment($plan);
+
+            SubscriptionPayment::query()->create([
+                'subscription_id' => $subscription->id,
+                'amount' => $finalPaymentData['amount'],
+                'currency' => $finalPaymentData['currency'] ?? 'BDT',
+                'status' => $finalPaymentData['status'] ?? SubscriptionPayment::STATUS_PENDING,
+                'payment_method' => $finalPaymentData['payment_method'] ?? null,
+                'transaction_reference' => $finalPaymentData['transaction_reference'] ?? null,
+                'paid_at' => $finalPaymentData['paid_at'] ?? null,
+                'metadata' => $finalPaymentData['metadata'] ?? null,
+            ]);
 
             return $subscription;
         });
+    }
+
+    /**
+     * Build a default payment record based on plan type.
+     * Free plans: zero-amount PAID
+     * Paid plans: price amount, PENDING
+     */
+    private function buildDefaultPayment(Plan $plan): array
+    {
+        $isFree = (float) $plan->price === 0.0;
+
+        if ($isFree) {
+            return [
+                'amount' => '0.00',
+                'currency' => 'BDT',
+                'status' => SubscriptionPayment::STATUS_PAID,
+                'payment_method' => 'free_plan',
+                'paid_at' => now(),
+                'metadata' => ['plan_type' => 'free'],
+            ];
+        }
+
+        return [
+            'amount' => $plan->price,
+            'currency' => 'BDT',
+            'status' => SubscriptionPayment::STATUS_PENDING,
+            'payment_method' => null,
+            'paid_at' => null,
+            'metadata' => ['plan_type' => 'paid'],
+        ];
     }
 
     /**
@@ -134,27 +186,25 @@ class SubscriptionService
      * preserved. Returns null if the user had no active subscription.
      */
     public function cancelActiveSubscription(User $user): ?Subscription
-{
-    return DB::transaction(function () use ($user) {
-        $lockedUser = User::query()->lockForUpdate()->findOrFail($user->id);
+    {
+        return DB::transaction(function () use ($user) {
+            $lockedUser = User::query()->lockForUpdate()->findOrFail($user->id);
 
-        $active = Subscription::query()
-            ->where('user_id', $lockedUser->id)
-            ->where('status', Subscription::STATUS_ACTIVE)
-            ->lockForUpdate()
-            ->first();
+            $active = Subscription::query()
+                ->where('user_id', $lockedUser->id)
+                ->where('status', Subscription::STATUS_ACTIVE)
+                ->first();
 
-        if ($active === null) {
-            return null; // ✅ এই line টা missing ছিল
-        }
+            if ($active === null) {
+                return null;
+            }
 
-        $active->update([
-            'status'       => Subscription::STATUS_CANCELLED,
-            'cancelled_at' => now(),
-        ]);
+            $active->update([
+                'status' => Subscription::STATUS_CANCELLED,
+                'cancelled_at' => now(),
+            ]);
 
-        return $active->refresh();
-    });
-}
-    
+            return $active->refresh();
+        });
+    }
 }

@@ -6,6 +6,12 @@ use App\Http\Controllers\PurchaseOrderController;
 use App\Http\Controllers\PurchaseBillController;
 
 Route::middleware(['auth', 'verified', 'company'])->group(function (): void {
+
+    Route::get('/vendors/bulk-create', [VendorController::class, 'bulkCreate'])
+        ->name('vendors.bulk-create');
+
+    Route::post('/vendors/bulk-store', [VendorController::class, 'bulkStore'])
+        ->name('vendors.bulk-store');
     
     Route::resource('vendors', VendorController::class)
         ->middlewareFor(['index', 'show'], 'can-permission:vendors.view')

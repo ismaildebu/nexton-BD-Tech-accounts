@@ -11,14 +11,23 @@ class Employee extends Model
     use HasFactory, BelongsToCompany;
 
     protected $fillable = [
-        'company_id', 'name', 'designation', 'department',
-        'phone', 'joining_date', 'basic_salary', 'is_active',
+        'company_id',
+        'name',
+        'designation',
+        'department',
+        'phone',
+        'alternate_phone',
+        'nid_number',
+        'photo_path',
+        'joining_date',
+        'basic_salary',
+        'is_active',
     ];
 
     protected $casts = [
-        'joining_date'  => 'date',
-        'basic_salary'  => 'decimal:2',
-        'is_active'     => 'boolean',
+        'joining_date' => 'date',
+        'basic_salary' => 'decimal:2',
+        'is_active' => 'boolean',
     ];
 
     public function company()

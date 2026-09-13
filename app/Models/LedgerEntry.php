@@ -93,15 +93,28 @@ class LedgerEntry extends Model
         return $query->where('account_id', $accountId);
     }
 
-    // ---------------------------------------------------------------
+        // ---------------------------------------------------------------
     // Accessors
     // ---------------------------------------------------------------
 
     /**
-     * ✅ পুরাতন fallback accessor বাদ — এখন সরাসরি debit_amount ব্যবহার।
-     * পুরাতন কোড ছিল: $this->debit_amount > 0 ? $this->debit_amount : $this->debit
-     * এখন 'debit' column নেই, তাই সরল accessor।
+     * Accessor: debit
+     * debit_amount → debit mapping করুন backward compatibility এর জন্য
      */
+    public function getDebitAttribute(): float
+    {
+        return (float) $this->debit_amount;
+    }
+
+    /**
+     * Accessor: credit
+     * credit_amount → credit mapping করুন
+     */
+    public function getCreditAttribute(): float
+    {
+        return (float) $this->credit_amount;
+    }
+
     public function getEffectiveDebitAttribute(): float
     {
         return (float) $this->debit_amount;

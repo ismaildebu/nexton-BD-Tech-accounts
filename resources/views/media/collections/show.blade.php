@@ -14,7 +14,7 @@
             </div>
             <div>
                 <span class="text-slate-500">Account:</span>
-                <span class="font-medium ml-1">{{ $collection->account->name ?? '-' }}</span>
+                <span class="font-medium ml-1">{{ $collection->account->account_name ?? '-' }}</span>
             </div>
             <div>
                 <span class="text-slate-500">Amount:</span>

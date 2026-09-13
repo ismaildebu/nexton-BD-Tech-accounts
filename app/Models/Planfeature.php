@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PlanFeature extends Model
 {
-    protected $fillable = [
+        protected $fillable = [
         'plan_id',
         'feature_key',
         'limit_value',

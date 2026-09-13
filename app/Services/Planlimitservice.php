@@ -88,8 +88,8 @@ class PlanLimitService
      * yet. Returns null if the plan has no row for that feature key
      * (treated as "no limit / not enabled" by the public methods above).
      */
-    private function resolveFeature(User $user, string $featureKey): ?PlanFeature
-    {
+       private function resolveFeature(User $user, string $featureKey): ?PlanFeature
+        {
         if (array_key_exists($featureKey, $this->resolved[$user->id] ?? [])) {
             return $this->resolved[$user->id][$featureKey];
         }
