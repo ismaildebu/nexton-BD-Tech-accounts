@@ -38,14 +38,7 @@ class SubscriptionService
                 'status' => Subscription::STATUS_ACTIVE,
                 'starts_at' => now(),
             ]);
-            $subscription->payments()->create([
-                'amount' => '0.00',
-                'currency' => 'BDT',
-                'status' => SubscriptionPayment::STATUS_PAID,
-                'payment_method' => 'free_plan',
-                'paid_at' => now(),
-                'metadata' => ['plan_type' => 'free'],
-            ]);
+       
             return $subscription;
         });
     }
@@ -124,22 +117,21 @@ class SubscriptionService
             $lockedUser = User::query()->lockForUpdate()->findOrFail($user->id);
             $active = $this->activeForUser($lockedUser->id, true);
             $active?->update(['status' => Subscription::STATUS_CANCELLED, 'cancelled_at' => now()]);
+           
             $subscription = Subscription::query()->create([
                 'user_id' => $lockedUser->id,
                 'plan_id' => $plan->id,
                 'status' => Subscription::STATUS_ACTIVE,
                 'starts_at' => now(),
             ]);
-            $data = $paymentData ?? [
-                'amount' => '0.00',
-                'currency' => 'BDT',
-                'status' => SubscriptionPayment::STATUS_PAID,
-                'payment_method' => 'free_plan',
-                'paid_at' => now(),
-            ];
-            $subscription->payments()->create($data);
+          
+          if ($paymentData !== null) {
+             $subscription->payments()->create($paymentData);
+        }
+
             return $subscription;
-        });
+            });
+            
     }
 
     public function cancelActiveSubscription(User $user): ?Subscription

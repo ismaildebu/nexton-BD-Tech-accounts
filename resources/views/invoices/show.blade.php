@@ -52,11 +52,14 @@
             </div>
         </div>
 
+        @include('invoices.partials.bkash-payment-button', ['invoice' => $invoice])
+
         <a href="{{ route('invoices.index') }}"
            class="inline-block mt-6 text-sm text-blue-600 hover:underline">
             ← Back to Invoices
         </a>
     </div>
 
+    
 </div>
 @endsection

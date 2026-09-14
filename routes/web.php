@@ -19,6 +19,9 @@ require __DIR__ . '/auth.php';
 // Dashboard
 require __DIR__ . '/dashboard.php';
 
+// BkashPayment
+require __DIR__ . '/bkash.php';
+
 // System Management
 require __DIR__ . '/system.php';
 
