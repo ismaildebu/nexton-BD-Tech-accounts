@@ -61,12 +61,7 @@ class SubscriptionController extends Controller
      */
     public function upgradePlan(Request $request, Plan $plan): RedirectResponse
     {
-        $request->validate([
-            'plan_id' => 'required|exists:plans,id',
-        ]);
-
         $user = auth()->user();
-        $plan = Plan::findOrFail($request->plan_id);
 
         try {
             // If free plan, no payment needed
@@ -77,11 +72,68 @@ class SubscriptionController extends Controller
                     ->with('success', "আপনি সফলভাবে '{$plan->name}' প্ল্যানে আপগ্রেড হয়েছেন।");
             }
 
-            // For paid plans, redirect to payment initiation
-            return redirect()->route('billing.plans.initiate-payment', $plan);
+            // For paid plans, redirect to payment method selection
+            return redirect()->route('billing.plans.payment-methods', $plan);
         } catch (\Exception $e) {
             return back()
                 ->with('error', 'প্ল্যান আপগ্রেড করতে সমস্যা হয়েছে: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Show payment method selection page
+     */
+    public function choosePaymentMethod(Plan $plan): View
+    {
+        return view('billing.payment-methods', [
+            'plan' => $plan,
+            'bkashNumber' => config('app.bkash_number'),
+        ]);
+    }
+
+    /**
+     * Handle Bkash payment submission
+     */
+    public function submitBkashPayment(Request $request, Plan $plan): RedirectResponse
+    {
+        $validated = $request->validate([
+            'transaction_id' => 'required|string|unique:subscription_payments,transaction_reference',
+            'sender_number' => 'required|regex:/^01[0-9]{9}$/',
+        ], [
+            'transaction_id.required' => 'ট্রানজ্যাকশন ID প্রয়োজন।',
+            'transaction_id.unique' => 'এই ট্রানজ্যাকশন ID ইতিমধ্যে ব্যবহৃত হয়েছে।',
+            'sender_number.required' => 'পাঠানো নম্বর প্রয়োজন।',
+            'sender_number.regex' => 'বৈধ বাংলাদেশী নম্বর প্রদান করুন (01XXXXXXXXX)।',
+        ]);
+
+        $user = auth()->user();
+
+        try {
+            // Create pending subscription
+            $subscription = $this->subscriptionService->createPendingPlan($user, $plan);
+
+            // Create payment record with PENDING status
+            $payment = SubscriptionPayment::create([
+                'subscription_id' => $subscription->id,
+                'amount' => $plan->price,
+                'currency' => 'BDT',
+                'status' => 'pending',
+                'payment_method' => 'bkash',
+                'transaction_reference' => $validated['transaction_id'],
+                'metadata' => [
+                    'sender_number' => $validated['sender_number'],
+                    'receiver_number' => config('app.bkash_number'),
+                    'submitted_at' => now()->toDateTimeString(),
+                    'submitted_by' => $user->id,
+                ]
+            ]);
+
+            return redirect()->route('billing.subscription')
+                ->with('success', 'বিকাশ পেমেন্ট জমা হয়েছে। অ্যাডমিন এটি যাচাই করবেন।');
+        } catch (\Exception $e) {
+            Log::error('Bkash payment submission failed: ' . $e->getMessage());
+            return back()
+                ->with('error', 'পেমেন্ট জমা দিতে সমস্যা হয়েছে: ' . $e->getMessage());
         }
     }
 
@@ -90,24 +142,18 @@ class SubscriptionController extends Controller
      */
     public function initiatePayment(Request $request, Plan $plan): RedirectResponse
     {
-        $request->validate([
-            'plan_id' => 'required|exists:plans,id',
-        ]);
-
         $user = auth()->user();
-        $plan = Plan::findOrFail($request->plan_id);
 
         try {
-            // Create new subscription (will be finalized after payment)
-            $subscription = $this->subscriptionService->activatePlan($user, $plan);
-
             // If free plan, no payment needed
             if ((float) $plan->price === 0.0) {
+                $this->subscriptionService->activatePlan($user, $plan);
                 return redirect()->route('billing.subscription')
                     ->with('success', "আপনি সফলভাবে '{$plan->name}' প্ল্যানে আপগ্রেড হয়েছেন।");
             }
 
-            // Initiate payment gateway
+            // Paid plans remain pending until the gateway is server-verified.
+            $subscription = $this->subscriptionService->createPendingPlan($user, $plan);
             $gatewayUrl = $this->paymentService->initiatePayment(
                 subscriptionId: $subscription->id,
                 amount: $plan->price,
@@ -188,7 +234,11 @@ class SubscriptionController extends Controller
     public function paymentIPN(Request $request): string
     {
         try {
-            Log::info('SSLCommerz IPN received', $request->all());
+            Log::info('SSLCommerz IPN received', [
+                'tran_id' => $request->input('tran_id'),
+                'status' => $request->input('status'),
+                'val_id' => $request->input('val_id'),
+            ]);
 
             $payment = $this->paymentService->handlePaymentSuccess($request->all());
 

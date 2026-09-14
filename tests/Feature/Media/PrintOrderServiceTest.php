@@ -10,6 +10,8 @@ use App\Services\Media\PrintOrderService;
 use App\Services\Media\NewspaperStockService;
 use Tests\Feature\Media\Concerns\CreatesMediaCompany;
 use App\Models\NewspaperStockMovement;
+use App\Services\Media\MediaAccountingService;
+
 
 
 uses(CreatesMediaCompany::class);
@@ -21,7 +23,11 @@ beforeEach(function () {
     $this->publication = Publication::create([
         'name' => 'Daily Star', 'code' => 'DS', 'selling_price' => 10,
     ]);
-   $this->service = new PrintOrderService(new NewspaperStockService());
+   $this->service = new PrintOrderService(
+    new NewspaperStockService(),
+    app(MediaAccountingService::class),
+);
+
 });
 
 function approvedPlan(int $companyId, int $publicationId, int $userId, int $finalQuantity, string $planDate = '2026-09-01'): PrintPlan

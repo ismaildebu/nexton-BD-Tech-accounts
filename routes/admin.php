@@ -17,4 +17,11 @@ Route::middleware(['auth', 'verified'])
         
         Route::get('/users/{user}/payments', [PaymentMonitoringController::class, 'userPayments'])
             ->name('users.payments');
+        
+        // Payment Verification
+        Route::post('/payments/{payment}/verify', [PaymentMonitoringController::class, 'verifyPayment'])
+            ->name('payments.verify');
+        
+        Route::post('/payments/{payment}/reject', [PaymentMonitoringController::class, 'rejectPayment'])
+            ->name('payments.reject');
     });

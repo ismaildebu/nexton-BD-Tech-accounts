@@ -601,6 +601,83 @@
         @endcanany
 
 
+                {{-- ════════════════════════════════════════════════
+             BILLING & SUBSCRIPTION
+        ════════════════════════════════════════════════ --}}
+        <div x-data="{
+            open: {{ request()->routeIs('billing.*') ? 'true' : 'false' }}
+        }">
+            <button type="button" @click="open = !open"
+                    class="w-full flex items-center gap-3 px-3 py-2 mt-1 rounded-xl
+                           text-sm font-semibold transition-all duration-150
+                           {{ $groupActive(['billing.*']) }}">
+                <i class="bi bi-credit-card text-sm w-4 text-center shrink-0"></i>
+                <span class="flex-1 text-left">Billing</span>
+                <i class="bi text-[10px] text-slate-500 transition-transform duration-200"
+                   :class="open ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+            </button>
+
+            <div x-show="open" x-transition:enter="transition ease-out duration-150"
+                 x-transition:enter-start="opacity-0 -translate-y-1"
+                 x-transition:enter-end="opacity-100 translate-y-0"
+                 class="mt-0.5 ml-3.5 pl-3 border-l border-white/8 space-y-0.5">
+
+                <a href="{{ route('billing.subscription') }}"
+                   class="{{ $navLink('billing.subscription', 'billing.subscription') }}">
+                    <i class="bi bi-box-seam text-xs w-4 text-center shrink-0"></i>
+                    <span>আমার সাবস্ক্রিপশন</span>
+                </a>
+
+                <a href="{{ route('billing.plans') }}"
+                   class="{{ $navLink('billing.plans', 'billing.plans') }}">
+                    <i class="bi bi-layout-three-columns text-xs w-4 text-center shrink-0"></i>
+                    <span>পরিকল্পনা</span>
+                </a>
+
+                <a href="{{ route('billing.payments') }}"
+                   class="{{ $navLink('billing.payments', 'billing.payments') }}">
+                    <i class="bi bi-receipt text-xs w-4 text-center shrink-0"></i>
+                    <span>পেমেন্ট ইতিহাস</span>
+                </a>
+
+            </div>
+        </div>
+
+
+        {{-- ════════════════════════════════════════════════
+             ADMIN (Super Admin Only)
+        ════════════════════════════════════════════════ --}}
+        @if(auth()->user()->role === 'Super Admin')
+        <div x-data="{
+            open: {{ request()->routeIs('admin.*') ? 'true' : 'false' }}
+        }">
+            <button type="button" @click="open = !open"
+                    class="w-full flex items-center gap-3 px-3 py-2 mt-1 rounded-xl
+                           text-sm font-semibold transition-all duration-150
+                           {{ $groupActive(['admin.*']) }}">
+                <i class="bi bi-speedometer text-sm w-4 text-center shrink-0"></i>
+                <span class="flex-1 text-left">Admin Panel</span>
+                <span class="inline-block px-1.5 py-0.5 text-[9px] font-bold text-white 
+                             bg-red-600/80 rounded shrink-0">SA</span>
+                <i class="bi text-[10px] text-slate-500 transition-transform duration-200"
+                   :class="open ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+            </button>
+
+            <div x-show="open" x-transition:enter="transition ease-out duration-150"
+                 x-transition:enter-start="opacity-0 -translate-y-1"
+                 x-transition:enter-end="opacity-100 translate-y-0"
+                 class="mt-0.5 ml-3.5 pl-3 border-l border-white/8 space-y-0.5">
+
+                <a href="{{ route('admin.payments.index') }}"
+                   class="{{ $navLink('admin.payments.index', 'admin.payments.*') }}">
+                    <i class="bi bi-graph-up text-xs w-4 text-center shrink-0"></i>
+                    <span>পেমেন্ট মনিটরিং</span>
+                </a>
+
+            </div>
+        </div>
+        @endif
+
         {{-- ════════════════════════════════════════════════
              SYSTEM
         ════════════════════════════════════════════════ --}}

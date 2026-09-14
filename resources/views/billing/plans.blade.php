@@ -65,7 +65,7 @@
                                 এটি আপনার বর্তমান পরিকল্পনা
                             </button>
                         @else
-                            <form action="{{ route('billing.plans.initiate-payment', $plan) }}" method="POST">
+                            <form action="{{ route('billing.plans.upgrade', $plan) }}" method="POST">
                                 @csrf
                                 <input type="hidden" name="plan_id" value="{{ $plan->id }}">
                                 

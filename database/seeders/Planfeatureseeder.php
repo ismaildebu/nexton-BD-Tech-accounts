@@ -33,13 +33,13 @@ class PlanFeatureSeeder extends Seeder
     private const MATRIX = [
         'free' => [
             'companies' => [1, true],
-            'users' => [2, true],
+            'users' => [1, true],
             'financial_years' => [1, true],
             'accounts' => [50, true],
             'customers' => [50, true],
             'vendors' => [20, true],
             'products' => [20, true],
-            'invoices_monthly' => [50, true],
+            'invoices_monthly' => [30, true],
             'expenses_monthly' => [50, true],
             'sales_orders_monthly' => [50, true],
             'purchase_orders_monthly' => [50, true],

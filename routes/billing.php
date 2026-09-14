@@ -25,12 +25,14 @@ Route::middleware(['auth', 'verified'])->prefix('billing')->name('billing.')->gr
     Route::get('/payments', [SubscriptionController::class, 'paymentHistory'])
         ->name('payments');
 
-
-
-        // Payment Callbacks (no auth needed for IPN)
+    // Payment Callbacks (no auth needed for IPN)
     Route::post('/payment-ipn', [SubscriptionController::class, 'paymentIPN'])
         ->name('payment-ipn')
-        ->withoutMiddleware(['auth', 'verified']);
+        ->withoutMiddleware([
+            'auth',
+            'verified',
+            \Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class,
+        ]);
 
     Route::get('/payment-success', [SubscriptionController::class, 'paymentSuccess'])
         ->middleware(['auth', 'verified'])
@@ -48,4 +50,15 @@ Route::middleware(['auth', 'verified'])->prefix('billing')->name('billing.')->gr
     Route::post('/plans/{plan}/initiate-payment', [SubscriptionController::class, 'initiatePayment'])
         ->middleware(['auth', 'verified'])
         ->name('plans.initiate-payment');
+
+    // Payment method selection
+    Route::get('/plans/{plan}/payment-methods', [SubscriptionController::class, 'choosePaymentMethod'])
+        ->middleware(['auth', 'verified'])
+        ->name('plans.payment-methods');
+
+    // Bkash payment submission
+    Route::post('/plans/{plan}/submit-bkash', [SubscriptionController::class, 'submitBkashPayment'])
+        ->middleware(['auth', 'verified'])
+        ->name('plans.submit-bkash');
+
 });

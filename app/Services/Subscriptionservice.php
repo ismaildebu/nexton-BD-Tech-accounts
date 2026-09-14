@@ -11,61 +11,23 @@ use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
-/**
- * Owns the lifecycle of a user's subscription: activating a plan,
- * cancelling the previous one, and preserving payment history.
- *
- * Concurrency: every write path locks the target User row
- * (`lockForUpdate`) inside a DB transaction before reading/writing
- * subscriptions, so two simultaneous "activate plan" requests for the
- * same user cannot both succeed in creating an active subscription.
- * This is the primary safeguard; the generated-column unique index on
- * the subscriptions table (MySQL only - see the migration) is a
- * secondary safety net.
- */
 class SubscriptionService
 {
-    /**
-     * Ensure the user has an active subscription, defaulting to the
-     * Free plan if they have none yet. Safe to call unconditionally
-     * from anywhere that needs to read the user's current plan.
-     */
     public function ensureHasSubscription(User $user): Subscription
     {
-        $existing = $user->activeSubscription;
-
-        if ($existing !== null) {
-            return $existing;
-        }
-
-        return $this->subscribeToFreePlan($user);
+        return $user->activeSubscription ?? $this->subscribeToFreePlan($user);
     }
 
-    /**
-     * Subscribe the user to the default (Free) plan. Idempotent: if the
-     * user already has an active subscription, that subscription is
-     * returned unchanged rather than creating a duplicate.
-     *
-     * Auto-creates a zero-amount PAID payment record for audit trail.
-     */
     public function subscribeToFreePlan(User $user): Subscription
     {
         $freePlan = Plan::defaultPlan();
-
         if ($freePlan === null) {
-            throw new RuntimeException(
-                'No default plan is configured. Run PlanSeeder before assigning subscriptions.'
-            );
+            throw new RuntimeException('No default plan is configured. Run PlanSeeder first.');
         }
 
-        return DB::transaction(function () use ($user, $freePlan) {
+        return DB::transaction(function () use ($user, $freePlan): Subscription {
             $lockedUser = User::query()->lockForUpdate()->findOrFail($user->id);
-
-            $active = Subscription::query()
-                ->where('user_id', $lockedUser->id)
-                ->where('status', Subscription::STATUS_ACTIVE)
-                ->first();
-
+            $active = $this->activeForUser($lockedUser->id, true);
             if ($active !== null) {
                 return $active;
             }
@@ -76,135 +38,131 @@ class SubscriptionService
                 'status' => Subscription::STATUS_ACTIVE,
                 'starts_at' => now(),
             ]);
-
-            // Auto-create zero-amount PAID payment for free plan (audit trail)
-            SubscriptionPayment::query()->create([
-                'subscription_id' => $subscription->id,
+            $subscription->payments()->create([
                 'amount' => '0.00',
                 'currency' => 'BDT',
                 'status' => SubscriptionPayment::STATUS_PAID,
                 'payment_method' => 'free_plan',
-                'transaction_reference' => null,
                 'paid_at' => now(),
                 'metadata' => ['plan_type' => 'free'],
             ]);
-
             return $subscription;
         });
     }
 
-    /**
-     * Activate the given plan for the user. Any existing active
-     * subscription is cancelled (never deleted) so its payment history
-     * remains intact. Runs inside a DB transaction with a row lock on
-     * the user to prevent concurrent activations from both succeeding.
-     *
-     * Auto-creates a payment record based on the plan price:
-     * - Free plan: zero-amount PAID payment
-     * - Paid plan: full-amount PENDING payment (unless $paymentData overrides)
-     *
-     * @param  array{amount: float|string, currency?: string, status?: string, payment_method?: string, transaction_reference?: string, paid_at?: \DateTimeInterface|string|null, metadata?: array}|null  $paymentData
-     *         Optional payment to record against the new subscription.
-     *         If provided, these values override the default auto-created payment.
-     */
-    public function activatePlan(User $user, Plan $plan, ?array $paymentData = null): Subscription
+    /** Create a paid checkout without changing the current active plan. */
+    public function createPendingPlan(User $user, Plan $plan): Subscription
     {
-        return DB::transaction(function () use ($user, $plan, $paymentData) {
-            $lockedUser = User::query()->lockForUpdate()->findOrFail($user->id);
+        if ((float) $plan->price <= 0.0) {
+            return $this->activatePlan($user, $plan);
+        }
 
-            $previousActive = Subscription::query()
+        return DB::transaction(function () use ($user, $plan): Subscription {
+            $lockedUser = User::query()->lockForUpdate()->findOrFail($user->id);
+            $existing = Subscription::query()
                 ->where('user_id', $lockedUser->id)
-                ->where('status', Subscription::STATUS_ACTIVE)
+                ->where('status', Subscription::STATUS_PENDING)
+                ->where('plan_id', $plan->id)
+                ->latest('id')
                 ->lockForUpdate()
                 ->first();
-
-            if ($previousActive !== null) {
-                $previousActive->update([
-                    'status' => Subscription::STATUS_CANCELLED,
-                    'cancelled_at' => now(),
-                ]);
+            if ($existing !== null) {
+                return $existing;
             }
 
+            $subscription = Subscription::query()->create([
+                'user_id' => $lockedUser->id,
+                'plan_id' => $plan->id,
+                'status' => Subscription::STATUS_PENDING,
+                'starts_at' => null,
+                'metadata' => ['checkout_started_at' => now()->toIso8601String()],
+            ]);
+            $subscription->payments()->create([
+                'amount' => number_format((float) $plan->price, 2, '.', ''),
+                'currency' => 'BDT',
+                'status' => SubscriptionPayment::STATUS_PENDING,
+                'metadata' => ['plan_type' => 'paid'],
+            ]);
+            return $subscription;
+        });
+    }
+
+    /** Activate only after a gateway-verified payment. */
+    public function activatePendingSubscription(Subscription $pending): Subscription
+    {
+        return DB::transaction(function () use ($pending): Subscription {
+            $locked = Subscription::query()->lockForUpdate()->findOrFail($pending->id);
+            if ($locked->status === Subscription::STATUS_ACTIVE) {
+                return $locked;
+            }
+            if ($locked->status !== Subscription::STATUS_PENDING) {
+                throw new RuntimeException('Only a pending subscription can be activated.');
+            }
+
+            $active = $this->activeForUser($locked->user_id, true);
+            $active?->update([
+                'status' => Subscription::STATUS_CANCELLED,
+                'cancelled_at' => now(),
+            ]);
+            $locked->update([
+                'status' => Subscription::STATUS_ACTIVE,
+                'starts_at' => now(),
+                'cancelled_at' => null,
+            ]);
+            return $locked->refresh();
+        });
+    }
+
+    /** Legacy API: free plans activate immediately; paid plans must use pending checkout. */
+    public function activatePlan(User $user, Plan $plan, ?array $paymentData = null): Subscription
+    {
+        if ((float) $plan->price > 0.0 && $paymentData === null) {
+            throw new RuntimeException('Paid plans must be activated only after verified payment.');
+        }
+
+        return DB::transaction(function () use ($user, $plan, $paymentData): Subscription {
+            $lockedUser = User::query()->lockForUpdate()->findOrFail($user->id);
+            $active = $this->activeForUser($lockedUser->id, true);
+            $active?->update(['status' => Subscription::STATUS_CANCELLED, 'cancelled_at' => now()]);
             $subscription = Subscription::query()->create([
                 'user_id' => $lockedUser->id,
                 'plan_id' => $plan->id,
                 'status' => Subscription::STATUS_ACTIVE,
                 'starts_at' => now(),
             ]);
-
-            // Determine payment to record
-            $finalPaymentData = $paymentData ?? $this->buildDefaultPayment($plan);
-
-            SubscriptionPayment::query()->create([
-                'subscription_id' => $subscription->id,
-                'amount' => $finalPaymentData['amount'],
-                'currency' => $finalPaymentData['currency'] ?? 'BDT',
-                'status' => $finalPaymentData['status'] ?? SubscriptionPayment::STATUS_PENDING,
-                'payment_method' => $finalPaymentData['payment_method'] ?? null,
-                'transaction_reference' => $finalPaymentData['transaction_reference'] ?? null,
-                'paid_at' => $finalPaymentData['paid_at'] ?? null,
-                'metadata' => $finalPaymentData['metadata'] ?? null,
-            ]);
-
-            return $subscription;
-        });
-    }
-
-    /**
-     * Build a default payment record based on plan type.
-     * Free plans: zero-amount PAID
-     * Paid plans: price amount, PENDING
-     */
-    private function buildDefaultPayment(Plan $plan): array
-    {
-        $isFree = (float) $plan->price === 0.0;
-
-        if ($isFree) {
-            return [
+            $data = $paymentData ?? [
                 'amount' => '0.00',
                 'currency' => 'BDT',
                 'status' => SubscriptionPayment::STATUS_PAID,
                 'payment_method' => 'free_plan',
                 'paid_at' => now(),
-                'metadata' => ['plan_type' => 'free'],
             ];
-        }
-
-        return [
-            'amount' => $plan->price,
-            'currency' => 'BDT',
-            'status' => SubscriptionPayment::STATUS_PENDING,
-            'payment_method' => null,
-            'paid_at' => null,
-            'metadata' => ['plan_type' => 'paid'],
-        ];
+            $subscription->payments()->create($data);
+            return $subscription;
+        });
     }
 
-    /**
-     * Cancel the user's active subscription, if any. The row is kept
-     * (status = 'cancelled'), never deleted, so payment history is
-     * preserved. Returns null if the user had no active subscription.
-     */
     public function cancelActiveSubscription(User $user): ?Subscription
     {
-        return DB::transaction(function () use ($user) {
+        return DB::transaction(function () use ($user): ?Subscription {
             $lockedUser = User::query()->lockForUpdate()->findOrFail($user->id);
-
-            $active = Subscription::query()
-                ->where('user_id', $lockedUser->id)
-                ->where('status', Subscription::STATUS_ACTIVE)
-                ->first();
-
+            $active = $this->activeForUser($lockedUser->id, true);
             if ($active === null) {
                 return null;
             }
-
-            $active->update([
-                'status' => Subscription::STATUS_CANCELLED,
-                'cancelled_at' => now(),
-            ]);
-
+            $active->update(['status' => Subscription::STATUS_CANCELLED, 'cancelled_at' => now()]);
             return $active->refresh();
         });
+    }
+
+    private function activeForUser(int $userId, bool $lock = false): ?Subscription
+    {
+        $query = Subscription::query()
+            ->where('user_id', $userId)
+            ->where('status', Subscription::STATUS_ACTIVE);
+        if ($lock) {
+            $query->lockForUpdate();
+        }
+        return $query->first();
     }
 }

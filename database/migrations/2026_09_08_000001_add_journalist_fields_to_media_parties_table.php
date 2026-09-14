@@ -19,9 +19,11 @@ return new class extends Migration
     public function up(): void
     {
         // 1. Extend the `type` enum
-        DB::statement(
-            "ALTER TABLE media_parties MODIFY COLUMN type ENUM('agent','hawker','journalist') NOT NULL"
-        );
+        if (Schema::getConnection()->getDriverName() === 'mysql') {
+            DB::statement(
+                "ALTER TABLE media_parties MODIFY COLUMN type ENUM('agent','hawker','journalist') NOT NULL"
+            );
+        }
 
         // 2. Add journalist-specific columns and audit field
         Schema::table('media_parties', function (Blueprint $table) {
@@ -51,8 +53,10 @@ return new class extends Migration
         ]);
     });
 
-    DB::statement(
-        "ALTER TABLE media_parties MODIFY COLUMN type ENUM('agent','hawker') NOT NULL"
-    );
+    if (Schema::getConnection()->getDriverName() === 'mysql') {
+        DB::statement(
+            "ALTER TABLE media_parties MODIFY COLUMN type ENUM('agent','hawker') NOT NULL"
+        );
+    }
 }
 };

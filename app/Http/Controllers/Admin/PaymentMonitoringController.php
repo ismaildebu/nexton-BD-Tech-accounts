@@ -73,4 +73,71 @@ class PaymentMonitoringController extends Controller
 
         return view('admin.payments.user', compact('user', 'subscriptions', 'payments'));
     }
+
+        /**
+     * Verify and activate payment
+     */
+    public function verifyPayment(SubscriptionPayment $payment): RedirectResponse
+    {
+        try {
+            // Mark payment as PAID
+            $payment->update([
+                'status' => 'paid',
+                'paid_at' => now(),
+            ]);
+
+            // Get subscription and activate it
+            $subscription = $payment->subscription;
+            $subscription->update([
+                'status' => 'active',
+                'started_at' => now(),
+            ]);
+
+            Log::info('Payment verified and subscription activated', [
+                'payment_id' => $payment->id,
+                'subscription_id' => $subscription->id,
+                'user_id' => $subscription->user_id,
+            ]);
+
+            return redirect()->route('admin.payments.show', $payment)
+                ->with('success', "পেমেন্ট #$payment->id সফলভাবে যাচাই হয়েছে। সাবস্ক্রিপশন সক্রিয় করা হয়েছে।");
+        } catch (\Exception $e) {
+            Log::error('Payment verification failed: ' . $e->getMessage());
+            return back()
+                ->with('error', 'পেমেন্ট যাচাই করতে সমস্যা হয়েছে: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Reject payment and cancel subscription
+     */
+    public function rejectPayment(SubscriptionPayment $payment): RedirectResponse
+    {
+        try {
+            // Mark payment as FAILED
+            $payment->update([
+                'status' => 'failed',
+            ]);
+
+            // Cancel subscription
+            $subscription = $payment->subscription;
+            $subscription->update([
+                'status' => 'cancelled',
+                'cancelled_at' => now(),
+            ]);
+
+            Log::info('Payment rejected and subscription cancelled', [
+                'payment_id' => $payment->id,
+                'subscription_id' => $subscription->id,
+                'user_id' => $subscription->user_id,
+            ]);
+
+            return redirect()->route('admin.payments.show', $payment)
+                ->with('warning', "পেমেন্ট #$payment->id প্রত্যাখ্যান করা হয়েছে। সাবস্ক্রিপশন বাতিল করা হয়েছে।");
+        } catch (\Exception $e) {
+            Log::error('Payment rejection failed: ' . $e->getMessage());
+            return back()
+                ->with('error', 'পেমেন্ট প্রত্যাখ্যান করতে সমস্যা হয়েছে: ' . $e->getMessage());
+        }
+    }
 }

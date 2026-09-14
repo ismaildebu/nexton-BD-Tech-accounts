@@ -4,40 +4,37 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Models\Subscription;
 use App\Models\SubscriptionPayment;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
-/**
- * SSLCommerz Payment Gateway Integration
- * Used for collecting subscription payments in Bangladesh
- */
-class SSLCommerzPaymentService
+final class SSLCommerzPaymentService
 {
-    private string $storeId;
-    private string $storePassword;
-    private string $apiUrl;
-    private bool $sandboxMode;
-
-    public function __construct()
+    public function __construct(private readonly SubscriptionService $subscriptionService)
     {
-        $this->storeId = config('sslcommerz.store_id');
-        $this->storePassword = config('sslcommerz.store_password');
-        $this->sandboxMode = config('sslcommerz.sandbox_mode', true);
-        
-        $this->apiUrl = $this->sandboxMode 
-            ? config('sslcommerz.sandbox_url')
-            : config('sslcommerz.live_url');
+        $this->storeId = (string) config('sslcommerz.store_id');
+        $this->storePassword = (string) config('sslcommerz.store_password');
+        $this->sandboxMode = (bool) config('sslcommerz.sandbox_mode', true);
+        $this->apiUrl = $this->sandboxMode
+            ? (string) config('sslcommerz.sandbox_url')
+            : (string) config('sslcommerz.live_url');
+        $this->validationUrl = $this->sandboxMode
+            ? (string) config('sslcommerz.sandbox_validation_url')
+            : (string) config('sslcommerz.live_validation_url');
 
-        if (!$this->storeId || !$this->storePassword) {
+        if ($this->storeId === '' || $this->storePassword === '') {
             throw new RuntimeException('SSLCommerz credentials not configured in .env');
         }
     }
 
-    /**
-     * Initiate payment with SSLCommerz
-     * Returns gateway URL for user to complete payment
-     */
+    private string $storeId;
+    private string $storePassword;
+    private string $apiUrl;
+    private string $validationUrl;
+    private bool $sandboxMode;
+
     public function initiatePayment(
         int $subscriptionId,
         string $amount,
@@ -46,8 +43,7 @@ class SSLCommerzPaymentService
         string $userName = '',
         string $userPhone = '',
     ): string {
-        $transactionId = "SUB-{$subscriptionId}-" . time();
-
+        $transactionId = 'SUB-' . $subscriptionId . '-' . bin2hex(random_bytes(8));
         $paymentData = [
             'store_id' => $this->storeId,
             'store_passwd' => $this->storePassword,
@@ -72,137 +68,146 @@ class SSLCommerzPaymentService
             'product_profile' => 'service',
         ];
 
-        try {
-            $response = Http::asForm()
-                ->post($this->apiUrl, $paymentData)
-                ->throw()
-                ->body();
+        $response = Http::asForm()->timeout(15)->post($this->apiUrl, $paymentData)->throw()->body();
+        preg_match('/sessionkey=([a-zA-Z0-9]+)/', $response, $matches);
+        $sessionKey = $matches[1] ?? null;
 
-            // Parse response
-            if (strpos($response, 'sessionkey') !== false) {
-                // Extract session key from response
-                preg_match('/sessionkey=([a-zA-Z0-9]+)/', $response, $matches);
-                if (!empty($matches[1])) {
-                    $sessionKey = $matches[1];
-                    
-                    // Store transaction reference in database
-                    $subscription = \App\Models\Subscription::findOrFail($subscriptionId);
-                    $subscription->update([
-                        'metadata' => array_merge(
-                            $subscription->metadata ?? [],
-                            ['transaction_id' => $transactionId, 'session_key' => $sessionKey]
-                        ),
-                    ]);
-
-                    // Redirect to gateway
-                    return $this->sandboxMode
-                        ? "https://sandbox.sslcommerz.com/customer/pay/{$sessionKey}"
-                        : "https://securepay.sslcommerz.com/customer/pay/{$sessionKey}";
-                }
-            }
-
-            throw new RuntimeException('Invalid response from SSLCommerz: ' . substr($response, 0, 100));
-        } catch (\Exception $e) {
-            throw new RuntimeException('SSLCommerz payment initiation failed: ' . $e->getMessage());
+        if ($sessionKey === null) {
+            throw new RuntimeException('Invalid response from SSLCommerz.');
         }
+
+        $subscription = Subscription::query()->findOrFail($subscriptionId);
+        $subscription->update([
+            'metadata' => array_merge($subscription->metadata ?? [], [
+                'transaction_id' => $transactionId,
+                'session_key' => $sessionKey,
+            ]),
+        ]);
+
+        return $this->sandboxMode
+            ? "https://sandbox.sslcommerz.com/customer/pay/{$sessionKey}"
+            : "https://securepay.sslcommerz.com/customer/pay/{$sessionKey}";
     }
 
-    /**
-     * Verify payment status with SSLCommerz
-     */
-    public function verifyPayment(string $transactionId, string $amount): bool
+    /** Verify the callback against SSLCommerz, never against the callback alone. */
+    public function verifyPayment(array $data, string $expectedAmount, string $expectedCurrency = 'BDT'): bool
     {
-        try {
-            $response = Http::asForm()
-                ->post("{$this->apiUrl}?ref=","")
-                ->post(
-                    str_replace('api.php', 'api.php', $this->apiUrl),
-                    [
-                        'store_id' => $this->storeId,
-                        'store_passwd' => $this->storePassword,
-                        'ref' => $transactionId,
-                    ]
-                )
-                ->throw()
-                ->body();
-
-            return strpos($response, 'VALID') !== false;
-        } catch (\Exception $e) {
+        $valId = (string) ($data['val_id'] ?? '');
+        $transactionId = (string) ($data['tran_id'] ?? '');
+        if ($valId === '' || $transactionId === '') {
             return false;
         }
+
+        try {
+            $remote = Http::asForm()->timeout(15)->post($this->validationUrl, [
+                'val_id' => $valId,
+                'store_id' => $this->storeId,
+                'store_passwd' => $this->storePassword,
+                'format' => 'json',
+            ])->throw()->json();
+        } catch (\Throwable) {
+            return false;
+        }
+
+        if (($remote['status'] ?? null) !== 'VALID') {
+            return false;
+        }
+
+        return hash_equals($transactionId, (string) ($remote['tran_id'] ?? ''))
+            && strcasecmp($expectedCurrency, (string) ($remote['currency'] ?? '')) === 0
+            && bccomp($expectedAmount, (string) ($remote['amount'] ?? '0'), 2) === 0;
     }
 
-    /**
-     * Handle payment success callback
-     */
+    /** Mark one verified transaction paid exactly once and activate its pending subscription. */
     public function handlePaymentSuccess(array $data): ?SubscriptionPayment
     {
-        $transactionId = $data['tran_id'] ?? null;
-        $status = $data['status'] ?? null;
-
-        if (!$transactionId || $status !== 'VALID') {
+        $transactionId = (string) ($data['tran_id'] ?? '');
+        if ($transactionId === '') {
             return null;
         }
 
-        // Find subscription by transaction ID in metadata
-        $subscription = \App\Models\Subscription::whereJsonContains(
-            'metadata->transaction_id',
-            $transactionId
-        )->first();
+        return DB::transaction(function () use ($data, $transactionId): ?SubscriptionPayment {
+            $subscription = Subscription::query()
+                ->whereJsonContains('metadata->transaction_id', $transactionId)
+                ->lockForUpdate()
+                ->first();
 
-        if (!$subscription) {
-            return null;
-        }
+            if ($subscription === null) {
+                return null;
+            }
 
-        // Update or create payment record
-        $payment = SubscriptionPayment::updateOrCreate(
-            ['subscription_id' => $subscription->id],
-            [
-                'amount' => (string) ($data['amount'] ?? '0.00'),
-                'currency' => $data['currency'] ?? 'BDT',
+            $payment = $subscription->payments()
+                ->where('transaction_reference', $transactionId)
+                ->lockForUpdate()
+                ->first();
+            if ($payment?->status === SubscriptionPayment::STATUS_PAID) {
+                return $payment;
+            }
+
+            $expectedAmount = number_format((float) $subscription->plan->price, 2, '.', '');
+            $currency = (string) ($data['currency'] ?? 'BDT');
+            if (!$this->verifyPayment($data, $expectedAmount, $currency)) {
+                return null;
+            }
+
+            $payment ??= $subscription->payments()->where('status', SubscriptionPayment::STATUS_PENDING)->latest('id')->lockForUpdate()->first();
+            if ($payment === null || bccomp((string) $payment->amount, $expectedAmount, 2) !== 0) {
+                return null;
+            }
+
+            $payment->update([
+                'amount' => $expectedAmount,
+                'currency' => $currency,
                 'status' => SubscriptionPayment::STATUS_PAID,
                 'payment_method' => 'sslcommerz',
                 'transaction_reference' => $transactionId,
                 'paid_at' => now(),
                 'metadata' => [
+                    'val_id' => $data['val_id'] ?? null,
                     'bank_tran_id' => $data['bank_tran_id'] ?? null,
                     'card_type' => $data['card_type'] ?? null,
-                    'card_number' => substr($data['card_number'] ?? '', -4),
+                    'card_last4' => substr((string) ($data['card_number'] ?? ''), -4),
                 ],
-            ]
-        );
+            ]);
 
-        return $payment;
+            $this->subscriptionService->activatePendingSubscription($subscription);
+
+            return $payment->refresh();
+        });
     }
 
-    /**
-     * Handle payment failure/cancellation
-     */
     public function handlePaymentFailure(array $data): void
     {
-        $transactionId = $data['tran_id'] ?? null;
-
-        if (!$transactionId) {
+        $transactionId = (string) ($data['tran_id'] ?? '');
+        if ($transactionId === '') {
             return;
         }
 
-        $subscription = \App\Models\Subscription::whereJsonContains(
-            'metadata->transaction_id',
-            $transactionId
-        )->first();
+        $subscription = Subscription::query()
+            ->whereJsonContains('metadata->transaction_id', $transactionId)
+            ->first();
+        if ($subscription === null) {
+            return;
+        }
 
-        if ($subscription) {
-            SubscriptionPayment::updateOrCreate(
-                ['subscription_id' => $subscription->id],
-                [
-                    'amount' => (string) ($data['amount'] ?? '0.00'),
-                    'currency' => $data['currency'] ?? 'BDT',
-                    'status' => SubscriptionPayment::STATUS_FAILED,
-                    'payment_method' => 'sslcommerz',
-                    'transaction_reference' => $transactionId,
-                    'metadata' => ['reason' => $data['status'] ?? 'unknown'],
-                ]
-            );
+        $payment = $subscription->payments()
+            ->where(function ($query) use ($transactionId): void {
+                $query->where('transaction_reference', $transactionId)
+                    ->orWhere('status', SubscriptionPayment::STATUS_PENDING);
+            })
+            ->latest('id')
+            ->first();
+
+        if ($payment !== null && $payment->status !== SubscriptionPayment::STATUS_PAID) {
+            $payment->update([
+                'status' => SubscriptionPayment::STATUS_FAILED,
+                'payment_method' => 'sslcommerz',
+                'transaction_reference' => $transactionId,
+                'metadata' => ['reason' => $data['status'] ?? 'unknown'],
+            ]);
+            if ($subscription?->status === Subscription::STATUS_PENDING) {
+                $subscription->update(['status' => Subscription::STATUS_CANCELLED, 'cancelled_at' => now()]);
+            }
         }
     }
 }

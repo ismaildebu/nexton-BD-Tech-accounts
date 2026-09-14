@@ -366,6 +366,24 @@ final class MediaAccountingService
                     return Transaction::query()->findOrFail($order->transaction_id);
                 }
 
+                
+                $receivedQuantity = (int) $order->received_quantity;
+                $unitPrintingCost = (string) $order->unit_printing_cost;
+
+                $totalPrintingCost = bcmul(
+                    (string) $receivedQuantity,
+                    $unitPrintingCost,
+                    2
+                );
+
+                if (bccomp($totalPrintingCost, '0.00', 2) <= 0) {
+                    $order->update([
+                        'total_printing_cost' => '0.00',
+                    ]);
+
+                    return null;
+                }
+
                 $order->loadMissing(['vendor']);
 
                 if (! $order->vendor) {
@@ -392,22 +410,7 @@ final class MediaAccountingService
                     'Vendor Payable'
                 );
 
-                $receivedQuantity = (int) $order->received_quantity;
-                $unitPrintingCost = (string) $order->unit_printing_cost;
-
-                $totalPrintingCost = bcmul(
-                    (string) $receivedQuantity,
-                    $unitPrintingCost,
-                    2
-                );
-
-                if (bccomp($totalPrintingCost, '0.00', 2) <= 0) {
-                    $order->update([
-                        'total_printing_cost' => '0.00',
-                    ]);
-
-                    return null;
-                }
+                
 
                 /*
                 * Printing Expense must be a unique active account for this company.
