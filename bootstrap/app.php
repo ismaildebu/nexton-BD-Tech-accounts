@@ -13,11 +13,12 @@ return Application::configure(basePath: dirname(__DIR__))
     )
 
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->alias([
+       $middleware->alias([
             'company' => \App\Http\Middleware\EnsureCompanySelected::class,
             'can-permission' => \App\Http\Middleware\CheckPermission::class,
             'module' => \App\Http\Middleware\EnsureModuleEnabled::class,
             'plan-feature' => \App\Http\Middleware\EnsurePlanFeatureEnabled::class,
+            'admin' => \App\Http\Middleware\AdminMiddleware::class,
         ]);
 
         $middleware->web(append: [

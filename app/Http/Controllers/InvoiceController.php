@@ -170,13 +170,25 @@ class InvoiceController extends Controller
      * Generate the next sequential invoice number for this company,
      * e.g. INV-2026-000123.
      */
+    
     private function nextInvoiceNumber(int $companyId): string
     {
-        $year  = now()->year;
-        $count = Invoice::where('company_id', $companyId)
-            ->whereYear('created_at', $year)
-            ->count();
+        $year = now()->year;
 
-        return sprintf('INV-%d-%06d', $year, $count + 1);
+        $lastInvoice = Invoice::query()
+            ->where('company_id', $companyId)
+            ->where('invoice_number', 'like', "INV-{$year}-%")
+            ->orderByDesc('id')
+            ->lockForUpdate()
+            ->first();
+
+        $nextNumber = 1;
+
+        if ($lastInvoice !== null) {
+            $lastSequence = (int) substr($lastInvoice->invoice_number, -6);
+            $nextNumber = $lastSequence + 1;
+        }
+
+        return sprintf('INV-%d-%06d', $year, $nextNumber);
     }
 }

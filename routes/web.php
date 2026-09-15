@@ -34,6 +34,9 @@ require __DIR__ . '/admin.php';
 // Company Management
 require __DIR__ . '/company.php';
 
+// Customer Payment Routes
+require __DIR__.'/customer-payments.php';
+
 // Company-based modules (need 'company' middleware)
 require __DIR__ . '/accounting.php';
 require __DIR__ . '/sales.php';
