@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Models\Customer;
 use App\Services\PlanLimitService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 class CustomerController extends Controller
@@ -56,21 +57,26 @@ class CustomerController extends Controller
             Customer::where('company_id', $companyId)->count(),
         );
 
-        Customer::create([
-            'company_id'      => $companyId,
-            'name'            => $request->name,
-            'phone'           => $request->phone,
-            'email'           => $request->email,
-            'address'         => $request->address,
-            'trade_license'   => $request->trade_license,
-            'tin'              => $request->tin,
-            'customer_type'   => $request->customer_type ?? 'Individual',
-            'credit_limit'    => $request->credit_limit ?? 0,
-            'opening_balance' => $request->opening_balance ?? 0,
-            'balance_type'    => $request->balance_type ?? 'Receivable',
-            'notes'           => $request->notes,
-            'is_active'       => true,
-        ]);
+        DB::transaction(function () use ($request, $companyId) {
+            $customerCode = $this->generateCustomerCode($companyId);
+
+            Customer::create([
+                'company_id'      => $companyId,
+                'customer_code'   => $customerCode,
+                'name'            => $request->name,
+                'phone'           => $request->phone,
+                'email'           => $request->email,
+                'address'         => $request->address,
+                'trade_license'   => $request->trade_license,
+                'tin'              => $request->tin,
+                'customer_type'   => $request->customer_type ?? 'Individual',
+                'credit_limit'    => $request->credit_limit ?? 0,
+                'opening_balance' => $request->opening_balance ?? 0,
+                'balance_type'    => $request->balance_type ?? 'Receivable',
+                'notes'           => $request->notes,
+                'is_active'       => true,
+            ]);
+        });
 
         return redirect()->route('customers.index')
             ->with('success', 'Customer created successfully!');
@@ -105,23 +111,28 @@ class CustomerController extends Controller
             Customer::where('company_id', $companyId)->count() + $customerCount,
         );
 
-        foreach ($customers as $customer) {
-            Customer::create([
-                'company_id'      => $companyId,
-                'name'            => $customer['name'],
-                'phone'           => $customer['phone'] ?? null,
-                'email'           => $customer['email'] ?? null,
-                'address'         => $customer['address'] ?? null,
-                'trade_license'   => $customer['trade_license'] ?? null,
-                'tin'              => $customer['tin'] ?? null,
-                'customer_type'   => $customer['customer_type'] ?? 'Individual',
-                'credit_limit'    => $customer['credit_limit'] ?? 0,
-                'opening_balance' => $customer['opening_balance'] ?? 0,
-                'balance_type'    => $customer['balance_type'] ?? 'Receivable',
-                'notes'           => $customer['notes'] ?? null,
-                'is_active'       => true,
-            ]);
-        }
+        DB::transaction(function () use ($customers, $companyId) {
+            foreach ($customers as $customer) {
+                $customerCode = $this->generateCustomerCode($companyId);
+
+                Customer::create([
+                    'company_id'      => $companyId,
+                    'customer_code'   => $customerCode,
+                    'name'            => $customer['name'],
+                    'phone'           => $customer['phone'] ?? null,
+                    'email'           => $customer['email'] ?? null,
+                    'address'         => $customer['address'] ?? null,
+                    'trade_license'   => $customer['trade_license'] ?? null,
+                    'tin'              => $customer['tin'] ?? null,
+                    'customer_type'   => $customer['customer_type'] ?? 'Individual',
+                    'credit_limit'    => $customer['credit_limit'] ?? 0,
+                    'opening_balance' => $customer['opening_balance'] ?? 0,
+                    'balance_type'    => $customer['balance_type'] ?? 'Receivable',
+                    'notes'           => $customer['notes'] ?? null,
+                    'is_active'       => true,
+                ]);
+            }
+        });
 
         return redirect()->route('customers.index')
             ->with('success', $customerCount . ' customers created successfully!');
@@ -179,6 +190,74 @@ class CustomerController extends Controller
 
         return redirect()->route('customers.index')
             ->with('success', 'Customer deleted!');
+    }
+
+    /**
+     * Generate a unique customer code from the company name.
+     *
+     * Example:
+     * Shadhan Alo => SA-00001
+     */
+    private function generateCustomerCode(int $companyId): string
+    {
+        $companyName = DB::table('companies')
+            ->where('id', $companyId)
+            ->value('company_name');
+
+        if (!$companyName) {
+            throw new \RuntimeException('Company not found.');
+        }
+
+        $prefix = $this->generateCompanyPrefix($companyName);
+
+        $lastCode = Customer::query()
+            ->where('customer_code', 'like', $prefix . '-%')
+            ->orderByDesc('id')
+            ->value('customer_code');
+
+        $nextNumber = 1;
+
+        if ($lastCode) {
+            $lastNumber = (int) substr($lastCode, strrpos($lastCode, '-') + 1);
+            $nextNumber = $lastNumber + 1;
+        }
+
+        return $prefix . '-' . str_pad(
+            (string) $nextNumber,
+            5,
+            '0',
+            STR_PAD_LEFT
+        );
+    }
+
+    /**
+     * Generate company initials.
+     *
+     * Example:
+     * Shadhan Alo => SA
+     * Nexton BD Tech => NBT
+     */
+    private function generateCompanyPrefix(string $companyName): string
+    {
+        $words = preg_split('/\s+/', trim($companyName), -1, PREG_SPLIT_NO_EMPTY);
+
+        $prefix = '';
+
+        foreach ($words as $word) {
+            $word = preg_replace('/[^A-Za-z]/', '', $word);
+
+            if ($word !== '') {
+                $prefix .= strtoupper($word[0]);
+            }
+        }
+
+        if ($prefix === '') {
+            throw new \RuntimeException(
+                'Unable to generate customer code prefix from company name.'
+            );
+        }
+
+        return substr($prefix, 0, 10);
     }
 
     /**

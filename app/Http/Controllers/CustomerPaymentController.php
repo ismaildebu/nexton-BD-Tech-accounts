@@ -5,26 +5,26 @@ namespace App\Http\Controllers;
 use App\Models\Customer;
 use App\Models\CustomerPayment;
 use App\Services\CustomerPaymentService;
-use App\Services\PaymentVoucherService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class CustomerPaymentController extends Controller
 {
     public function __construct(
         private CustomerPaymentService $paymentService,
-        private PaymentVoucherService $voucherService,
     ) {}
 
     /**
      * Payment form দেখা (Customer Code এর জন্য)
+     *
      * GET /customer/pay/{customerCode}
      */
-    public function show($customerCode)
+    public function show(string $customerCode)
     {
-        $companyId = session('company_id') ?? 16;
-        
-        // Customer খুঁজা by customer_code
-        $customer = Customer::where('company_id', $companyId)
+        $companyId = $this->companyId();
+
+        $customer = Customer::query()
+            ->where('company_id', $companyId)
             ->where('customer_code', $customerCode)
             ->firstOrFail();
 
@@ -36,61 +36,83 @@ class CustomerPaymentController extends Controller
 
     /**
      * Payment initiate করা
+     *
+     * Payment initiate করা মানেই টাকা received নয়।
+     * এই পর্যায়ে কোনো voucher তৈরি হবে না।
+     *
      * POST /customer/pay/{customerCode}
      */
-    public function initiatePayment(Request $request, $customerCode)
-    {
-        $companyId = session('company_id') ?? 16;
-        
-        // Customer খুঁজা
-        $customer = Customer::where('company_id', $companyId)
+    public function initiatePayment(
+        Request $request,
+        string $customerCode
+    ) {
+        $companyId = $this->companyId();
+
+        $customer = Customer::query()
+            ->where('company_id', $companyId)
             ->where('customer_code', $customerCode)
             ->firstOrFail();
 
-        // Validate করা
         $validated = $request->validate([
             'amount' => 'required|numeric|min:0.01',
             'payment_method' => 'required|in:bkash,sslcommerz,bank_transfer',
         ]);
 
         try {
-            // Payment record তৈরি করা
             $payment = $this->paymentService->createPayment(
                 companyId: $companyId,
                 customerId: $customer->id,
-                referenceId: $customerCode,
-                amount: $validated['amount'],
+                referenceId: $customer->customer_code,
+                amount: (float) $validated['amount'],
                 paymentMethod: $validated['payment_method'],
             );
 
-            // Auto voucher তৈরি করি immediately!
-            try {
-                $this->voucherService->createReceiptVoucher($payment);
-                $payment->update(['status' => 'received']);
-            } catch (\Exception $e) {
-                \Log::error('Voucher creation failed: ' . $e->getMessage());
-                throw $e;
-            }
+            /*
+             * Payment is still pending here.
+             *
+             * No voucher is created until actual payment
+             * confirmation is received.
+             */
 
-            // Payment method অনুযায়ী handle করা
             if ($validated['payment_method'] === 'sslcommerz') {
                 return $this->initiateSslcommerzPayment($payment);
-            } elseif ($validated['payment_method'] === 'bkash') {
+            }
+
+            if ($validated['payment_method'] === 'bkash') {
                 return $this->initiateBkashPayment($payment);
             }
 
-            return response()->json(['success' => true, 'payment_id' => $payment->id]);
-        } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 422);
+            return response()->json([
+                'success' => true,
+                'payment_id' => $payment->id,
+                'status' => $payment->status,
+                'message' => 'Payment initiated and is awaiting confirmation.',
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Customer payment initiation failed.', [
+                'company_id' => $companyId,
+                'customer_code' => $customerCode,
+                'payment_method' => $validated['payment_method'] ?? null,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'error' => $e->getMessage(),
+            ], 422);
         }
     }
 
     /**
      * SSLCommerz payment initiate করা
      */
-    private function initiateSslcommerzPayment(CustomerPayment $payment)
-    {
-        $sslService = app(\App\Services\SSLCommerzPaymentService::class);
+    private function initiateSslcommerzPayment(
+        CustomerPayment $payment
+    ) {
+        $this->assertPaymentCompany($payment);
+
+        $sslService = app(
+            \App\Services\SSLCommerzPaymentService::class
+        );
 
         try {
             $response = $sslService->initiatePayment(
@@ -113,44 +135,75 @@ class CustomerPaymentController extends Controller
 
             return response()->json([
                 'success' => true,
+                'payment_id' => $payment->id,
+                'status' => $payment->status,
                 'redirect_url' => $response['redirect_url'] ?? null,
                 'session_id' => $response['sessionId'] ?? null,
             ]);
-        } catch (\Exception $e) {
-            $payment->update(['status' => 'failed']);
-            return response()->json(['error' => $e->getMessage()], 422);
+        } catch (\Throwable $e) {
+            $payment->update([
+                'status' => 'failed',
+                'notes' => $e->getMessage(),
+            ]);
+
+            Log::error('SSLCommerz payment initiation failed.', [
+                'payment_id' => $payment->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'error' => $e->getMessage(),
+            ], 422);
         }
     }
 
     /**
-     * Bkash manual payment
+     * bKash manual payment
      */
-    private function initiateBkashPayment(CustomerPayment $payment)
-    {
+    private function initiateBkashPayment(
+        CustomerPayment $payment
+    ) {
+        $this->assertPaymentCompany($payment);
+
         return response()->json([
             'success' => true,
             'payment_id' => $payment->id,
-            'redirect_url' => route('customer-payment.bkash.form', $payment->id),
+            'status' => $payment->status,
+            'redirect_url' => route(
+                'customer-payment.bkash.form',
+                $payment->id
+            ),
         ]);
     }
 
     /**
-     * Bkash payment form
+     * bKash payment form
+     *
      * GET /customer/pay/bkash/{payment_id}
      */
     public function bkashForm(CustomerPayment $payment)
     {
+        $this->assertPaymentCompany($payment);
+
         return view('customer.payment.bkash-form', [
             'payment' => $payment,
         ]);
     }
 
     /**
-     * Bkash payment submit করা
+     * bKash payment submit করা
+     *
      * POST /customer/pay/bkash/{payment_id}
+     *
+     * Actual payment received হলে:
+     * received → Receive Voucher
      */
-    public function submitBkashPayment(Request $request, CustomerPayment $payment)
-    {
+    public function submitBkashPayment(
+        Request $request,
+        CustomerPayment $payment
+    ) {
+        $this->assertPaymentCompany($payment);
+
         $validated = $request->validate([
             'transaction_id' => 'required|string|max:50',
             'sender_number' => 'required|string|max:20',
@@ -159,22 +212,36 @@ class CustomerPaymentController extends Controller
         try {
             $payment->update([
                 'transaction_reference' => $validated['transaction_id'],
-                'status' => 'received',
-                'metadata' => [
-                    'sender_number' => $validated['sender_number'],
-                    'receiver_number' => config('bkash.number'),
-                ],
+                'metadata' => array_merge(
+                    $payment->metadata ?? [],
+                    [
+                        'sender_number' => $validated['sender_number'],
+                        'receiver_number' => config('bkash.number'),
+                    ]
+                ),
             ]);
 
-            // Email পাঠানো
-            $this->paymentService->sendPaymentReceivedEmail($payment);
-            
-            // Admin কে notify করা
-            $this->paymentService->notifyAdminOfPayment($payment);
+            /*
+             * Actual payment confirmation.
+             *
+             * markAsReceived() is responsible for:
+             * - marking the payment as received
+             * - creating the receipt voucher once
+             */
+            $payment = $this->paymentService->markAsReceived($payment);
 
-            return redirect()->route('customer-payment.success', $payment->id)
-                ->with('success', 'Payment received. Voucher created!');
-        } catch (\Exception $e) {
+            return redirect()
+                ->route('customer-payment.success', $payment->id)
+                ->with(
+                    'success',
+                    'Payment received and voucher created.'
+                );
+        } catch (\Throwable $e) {
+            Log::error('bKash payment processing failed.', [
+                'payment_id' => $payment->id,
+                'error' => $e->getMessage(),
+            ]);
+
             return back()->withError($e->getMessage());
         }
     }
@@ -184,6 +251,8 @@ class CustomerPaymentController extends Controller
      */
     public function success(CustomerPayment $payment)
     {
+        $this->assertPaymentCompany($payment);
+
         return view('customer.payment.success', [
             'payment' => $payment,
         ]);
@@ -191,51 +260,114 @@ class CustomerPaymentController extends Controller
 
     /**
      * SSLCommerz success callback
+     *
+     * Browser redirect is not treated as payment confirmation.
+     * IPN/webhook confirms the payment.
      */
     public function sslcommerzSuccess(Request $request)
     {
         $paymentId = $request->query('payment_id');
-        $payment = CustomerPayment::findOrFail($paymentId);
 
-        try {
-            $this->paymentService->sendPaymentReceivedEmail($payment);
-            $this->paymentService->notifyAdminOfPayment($payment);
-
-            return view('customer.payment.success', [
-                'payment' => $payment,
-                'message' => 'Payment received successfully! Voucher has been created.',
-            ]);
-        } catch (\Exception $e) {
+        if (!$paymentId) {
             return view('customer.payment.error', [
-                'message' => 'Error: ' . $e->getMessage(),
+                'message' => 'Payment reference is missing.',
             ]);
         }
+
+        $payment = CustomerPayment::query()
+            ->where('id', $paymentId)
+            ->where('company_id', $this->companyId())
+            ->firstOrFail();
+
+        return view('customer.payment.success', [
+            'payment' => $payment,
+            'message' => in_array(
+                $payment->status,
+                ['received', 'verified'],
+                true
+            )
+                ? 'Payment received successfully. Voucher has been created.'
+                : 'Payment confirmation is pending.',
+        ]);
     }
 
     /**
      * SSLCommerz IPN webhook
+     *
+     * VALID = actual gateway confirmation.
      */
     public function ipnWebhook(Request $request)
     {
-        $paymentId = $request->input('val_id');
-        $status = $request->input('status');
+        $paymentId = $request->input('payment_id');
+        $transactionReference = $request->input('val_id');
+        $status = strtoupper(
+            (string) $request->input('status')
+        );
 
-        $payment = CustomerPayment::where('transaction_reference', $paymentId)->first();
+        $paymentQuery = CustomerPayment::query()
+            ->where('company_id', $this->companyId());
+
+        if ($paymentId) {
+            $paymentQuery->where('id', $paymentId);
+        } elseif ($transactionReference) {
+            $paymentQuery->where(
+                'transaction_reference',
+                $transactionReference
+            );
+        } else {
+            return response()->json([
+                'error' => 'Payment reference not found.',
+            ], 400);
+        }
+
+        $payment = $paymentQuery->first();
 
         if (!$payment) {
-            return response()->json(['error' => 'Payment not found'], 404);
+            return response()->json([
+                'error' => 'Payment not found.',
+            ], 404);
         }
 
         try {
             if ($status === 'VALID') {
-                $this->paymentService->sendPaymentReceivedEmail($payment);
-                return response()->json(['success' => true]);
-            } else {
-                $this->paymentService->rejectPayment($payment, 'SSLCommerz validation failed');
-                return response()->json(['success' => false]);
+                $payment->update([
+                    'transaction_reference' => $transactionReference
+                        ?: $payment->transaction_reference,
+                ]);
+
+                /*
+                 * Actual payment confirmation.
+                 *
+                 * markAsReceived() handles:
+                 * - payment status
+                 * - receipt voucher creation
+                 * - duplicate protection
+                 */
+                $this->paymentService->markAsReceived($payment);
+
+                return response()->json([
+                    'success' => true,
+                ]);
             }
-        } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 422);
+
+            $this->paymentService->rejectPayment(
+                $payment,
+                'SSLCommerz validation failed'
+            );
+
+            return response()->json([
+                'success' => false,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('SSLCommerz IPN processing failed.', [
+                'payment_id' => $payment->id,
+                'status' => $status,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'error' => $e->getMessage(),
+            ], 422);
         }
     }
 
@@ -244,23 +376,34 @@ class CustomerPaymentController extends Controller
      */
     public function downloadReceipt(CustomerPayment $payment)
     {
+        $this->assertPaymentCompany($payment);
+
         try {
-            $pdfService = app(\App\Services\PaymentReceiptPdfService::class);
+            $pdfService = app(
+                \App\Services\PaymentReceiptPdfService::class
+            );
+
             return $pdfService->download($payment);
-        } catch (\Exception $e) {
-            return back()->withError('Failed to generate receipt: ' . $e->getMessage());
+        } catch (\Throwable $e) {
+            Log::error('Payment receipt PDF generation failed.', [
+                'payment_id' => $payment->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return back()->withError(
+                'Failed to generate receipt: ' . $e->getMessage()
+            );
         }
     }
 
     /**
-     * Admin Routes (Optional - for verification later)
+     * Admin payment list
      */
-    
     public function adminList()
     {
         $payments = CustomerPayment::with('customer', 'voucher')
-            ->where('company_id', session('company_id'))
-            ->orderBy('created_at', 'desc')
+            ->where('company_id', $this->companyId())
+            ->orderByDesc('created_at')
             ->paginate(20);
 
         return view('admin.customer-payments.index', [
@@ -268,34 +411,107 @@ class CustomerPaymentController extends Controller
         ]);
     }
 
+    /**
+     * Admin payment details
+     */
     public function adminShow(CustomerPayment $payment)
     {
+        $this->assertPaymentCompany($payment);
+
         return view('admin.customer-payments.show', [
             'payment' => $payment,
         ]);
     }
 
+    /**
+     * Admin verification
+     *
+     * Verification is a payment confirmation event.
+     * The service creates the receipt voucher once.
+     */
     public function verify(CustomerPayment $payment)
     {
+        $this->assertPaymentCompany($payment);
+
         try {
-            $this->paymentService->verifyPayment($payment, auth()->id() ?? 1);
-            return back()->with('success', 'Payment verified!');
-        } catch (\Exception $e) {
-            return back()->withError('Verification failed: ' . $e->getMessage());
+            $this->paymentService->verifyPayment(
+                $payment,
+                auth()->id() ?? 1
+            );
+
+            return back()->with(
+                'success',
+                'Payment verified and voucher created.'
+            );
+        } catch (\Throwable $e) {
+            Log::error('Customer payment verification failed.', [
+                'payment_id' => $payment->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return back()->withError(
+                'Verification failed: ' . $e->getMessage()
+            );
         }
     }
 
-    public function reject(Request $request, CustomerPayment $payment)
-    {
+    /**
+     * Reject payment
+     */
+    public function reject(
+        Request $request,
+        CustomerPayment $payment
+    ) {
+        $this->assertPaymentCompany($payment);
+
         $validated = $request->validate([
             'reason' => 'nullable|string|max:500',
         ]);
 
         try {
-            $this->paymentService->rejectPayment($payment, $validated['reason']);
-            return back()->with('success', 'Payment rejected.');
-        } catch (\Exception $e) {
-            return back()->withError('Rejection failed: ' . $e->getMessage());
+            $this->paymentService->rejectPayment(
+                $payment,
+                $validated['reason'] ?? null
+            );
+
+            return back()->with(
+                'success',
+                'Payment rejected.'
+            );
+        } catch (\Throwable $e) {
+            Log::error('Customer payment rejection failed.', [
+                'payment_id' => $payment->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return back()->withError(
+                'Rejection failed: ' . $e->getMessage()
+            );
+        }
+    }
+
+    /**
+     * Current company ID.
+     */
+    private function companyId(): int
+    {
+        $companyId = session('company_id');
+
+        if (!$companyId) {
+            abort(403, 'Company context is missing.');
+        }
+
+        return (int) $companyId;
+    }
+
+    /**
+     * Prevent cross-company access to a payment.
+     */
+    private function assertPaymentCompany(
+        CustomerPayment $payment
+    ): void {
+        if ((int) $payment->company_id !== $this->companyId()) {
+            abort(404);
         }
     }
 }

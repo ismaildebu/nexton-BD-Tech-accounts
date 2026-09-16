@@ -12,39 +12,67 @@ use Illuminate\Support\Facades\DB;
 class PaymentVoucherService
 {
     /**
-     * Customer Payment থেকে Receipt Voucher তৈরি করা
+     * Customer Payment থেকে Receipt Voucher তৈরি করা।
      *
      * Voucher structure:
-     * - Debit: Bank/Cash Account
-     * - Credit: Accounts Receivable
+     *
+     * Debit  : Bank/Cash Account
+     * Credit : Accounts Receivable
+     *
+     * কোনো আলাদা ledger posting এখানে করা হবে না।
      */
-    public function createReceiptVoucher(CustomerPayment $payment): Transaction
-    {
+    public function createReceiptVoucher(
+        CustomerPayment $payment
+    ): Transaction {
         return DB::transaction(function () use ($payment) {
             $payment = CustomerPayment::query()
                 ->lockForUpdate()
+                ->with('customer')
                 ->findOrFail($payment->id);
 
+            /*
+             * Duplicate protection.
+             */
             if ($payment->voucher_id !== null) {
-                return Transaction::query()->findOrFail($payment->voucher_id);
+                return Transaction::query()
+                    ->findOrFail($payment->voucher_id);
             }
 
-            if (!in_array($payment->status, ['received', 'verified'], true)) {
+            /*
+             * Voucher only allowed after actual receipt/verification.
+             */
+            if (!in_array(
+                $payment->status,
+                ['received', 'verified'],
+                true
+            )) {
                 throw new \RuntimeException(
-                    "Payment must be received or verified before creating a voucher."
+                    'Payment must be received or verified before creating a voucher.'
                 );
             }
 
+            if ($payment->amount <= 0) {
+                throw new \RuntimeException(
+                    'Payment amount must be greater than zero.'
+                );
+            }
+
+            /*
+             * Payment method অনুযায়ী configured
+             * Cash/Bank account resolve করা।
+             */
             $bankAccount = $this->resolveBankAccount($payment);
 
             if (!$bankAccount) {
                 throw new \RuntimeException(
-                    'Bank account not found for payment method: '
+                    'Bank or cash account not found for payment method: '
                     . $payment->payment_method
                 );
             }
 
-            // Accounts Receivable খোঁজা
+            /*
+             * Accounts Receivable account resolve করা।
+             */
             $receivableAccount = $this->getReceivableAccount(
                 $payment->company_id
             );
@@ -55,61 +83,91 @@ class PaymentVoucherService
                 );
             }
 
-            // নতুন Voucher তৈরি করা
+            /*
+             * Voucher type resolve করা।
+             */
+            $voucherTypeId = $this->getJournalVoucherTypeId(
+                $payment->company_id
+            );
+
+            /*
+             * Customer name safely resolve করা।
+             */
+            $customerName =
+                $payment->customer?->customer_name
+                ?? $payment->customer?->name
+                ?? 'Customer';
+
+            /*
+             * Receipt Voucher তৈরি করা।
+             */
             $voucher = Transaction::create([
                 'company_id' => $payment->company_id,
-                'voucher_type_id' => $this->getJournalVoucherTypeId(),
+                'voucher_type_id' => $voucherTypeId,
                 'voucher_number' => $this->generateVoucherNumber(
                     $payment->company_id
                 ),
                 'voucher_date' => $payment->payment_date,
                 'reference_type' => 'CustomerPayment',
                 'reference_id' => $payment->id,
-               'description' => "Payment received from customer: "
-    .                   "{$payment->customer->name} "
-                    . "(Ref: {$payment->reference_id})",
+                'description' => 'Payment received from customer: '
+                    . $customerName
+                    . ' (Customer Code: '
+                    . $payment->reference_id
+                    . ')',
                 'is_balanced' => false,
                 'status' => 'Draft',
                 'created_by' => auth()->id() ?? 1,
             ]);
 
-            // Ledger Detail Line 1: Bank/Cash Account (Debit)
+            /*
+             * Debit: Cash/Bank.
+             */
             TransactionDetail::create([
                 'transaction_id' => $voucher->id,
                 'account_id' => $bankAccount->id,
                 'debit_amount' => $payment->amount,
                 'credit_amount' => 0,
-                'description' => "Payment received from "
-                    . $payment->customer->customer_name,
+                'description' => 'Payment received from '
+                    . $customerName,
             ]);
 
-            // Ledger Detail Line 2: Accounts Receivable (Credit)
+            /*
+             * Credit: Accounts Receivable.
+             */
             TransactionDetail::create([
                 'transaction_id' => $voucher->id,
                 'account_id' => $receivableAccount->id,
                 'debit_amount' => 0,
                 'credit_amount' => $payment->amount,
-                'description' => "Payment received from "
-                    . $payment->customer->customer_name,
+                'description' => 'Payment received from '
+                    . $customerName,
             ]);
 
-            // Voucher validate এবং post করা
-            $this->validateAndPostVoucher($voucher);
+            /*
+             * Voucher balance validate করা।
+             *
+             * এখানে কোনো LedgerPostingService call নেই।
+             */
+            $this->validateVoucher($voucher);
 
-            // Payment-এর সাথে Voucher link করা
+            /*
+             * Payment-এর সাথে Voucher link করা।
+             */
             $payment->update([
                 'voucher_id' => $voucher->id,
             ]);
 
-            return $voucher;
+            return $voucher->refresh();
         });
     }
 
     /**
-     * Payment method অনুযায়ী Bank/Cash Account খোঁজা
+     * Payment method অনুযায়ী Cash/Bank Account resolve করা।
      */
-    private function resolveBankAccount(CustomerPayment $payment): ?Account
-    {
+    private function resolveBankAccount(
+        CustomerPayment $payment
+    ): ?Account {
         return Account::query()
             ->where('company_id', $payment->company_id)
             ->where('account_type', Account::TYPE_ASSET)
@@ -134,14 +192,16 @@ class PaymentVoucherService
     }
 
     /**
-     * Accounts Receivable account খোঁজা
+     * Accounts Receivable account resolve করা।
      */
-    private function getReceivableAccount(int $companyId): ?Account
-    {
+    private function getReceivableAccount(
+        int $companyId
+    ): ?Account {
         return Account::query()
             ->where('company_id', $companyId)
             ->where(function ($query) {
-                $query->where('account_code', 1003)
+                $query
+                    ->where('account_code', 1003)
                     ->orWhere(
                         'account_name',
                         'like',
@@ -153,29 +213,53 @@ class PaymentVoucherService
     }
 
     /**
-     * Journal Voucher Type ID খোঁজা
+     * Journal Voucher Type ID resolve করা।
      */
-    private function getJournalVoucherTypeId(): int
-        {
-            $voucherType = VoucherType::query()
-                ->where('name', 'Journal Voucher')
-                ->orWhere('name', 'Journal')
-                ->first();
+    private function getJournalVoucherTypeId(
+        int $companyId
+    ): int {
+        $query = VoucherType::query()
+            ->where(function ($query) {
+                $query
+                    ->where('name', 'Journal Voucher')
+                    ->orWhere('name', 'Journal');
+            });
 
-            if ($voucherType === null) {
-                throw new \RuntimeException(
-                    'Journal voucher type is not configured.'
-                );
-            }
-
-            return $voucherType->id;
+        /*
+         * যদি VoucherType company-specific হয়,
+         * তাহলে company isolation বজায় থাকবে।
+         */
+        if (
+            in_array(
+                'company_id',
+                (new VoucherType())->getFillable(),
+                true
+            )
+        ) {
+            $query->where('company_id', $companyId);
         }
 
+        $voucherType = $query->first();
+
+        if ($voucherType === null) {
+            throw new \RuntimeException(
+                'Journal voucher type is not configured.'
+            );
+        }
+
+        return $voucherType->id;
+    }
+
     /**
-     * Voucher number generate করা
+     * Receipt Voucher number generate করা।
+     *
+     * Example:
+     * RCP-0001
+     * RCP-0002
      */
-    private function generateVoucherNumber(int $companyId): string
-    {
+    private function generateVoucherNumber(
+        int $companyId
+    ): string {
         $lastVoucher = Transaction::query()
             ->where('company_id', $companyId)
             ->where('voucher_number', 'like', 'RCP-%')
@@ -203,11 +287,14 @@ class PaymentVoucherService
     }
 
     /**
-     * Voucher validate এবং post করা
+     * Voucher balanced কিনা validate করা।
+     *
+     * এখানে ledger posting করা হয় না।
      */
-    private function validateAndPostVoucher(Transaction $voucher): void
-    {
-        $details = $voucher->details;
+    private function validateVoucher(
+        Transaction $voucher
+    ): void {
+        $details = $voucher->details()->get();
 
         if ($details->count() < 2) {
             throw new \RuntimeException(
@@ -226,21 +313,19 @@ class PaymentVoucherService
             ) !== 0
         ) {
             throw new \RuntimeException(
-                "Voucher is not balanced. "
-                . "Debit: {$totalDebit}, "
-                . "Credit: {$totalCredit}"
+                'Voucher is not balanced. '
+                . 'Debit: ' . $totalDebit
+                . ', Credit: ' . $totalCredit
             );
         }
 
+        /*
+         * Voucher approved/validated হিসেবে save করা হচ্ছে।
+         * আলাদা ledger posting এখানে করা হচ্ছে না।
+         */
         $voucher->update([
             'is_balanced' => true,
             'status' => Transaction::STATUS_APPROVED,
         ]);
-
-        $ledgerPostingService = app(
-            LedgerPostingService::class
-        );
-
-        $ledgerPostingService->post($voucher);
     }
 }

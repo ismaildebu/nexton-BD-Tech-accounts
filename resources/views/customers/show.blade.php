@@ -24,23 +24,34 @@
             </div>
         </div>
 
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
+
+            <div class="p-3 bg-slate-50 rounded-lg">
+                <p class="text-xs text-slate-500">Customer Code</p>
+                <p class="font-medium">{{ $customer->customer_code ?? '-' }}</p>
+            </div>
+
             <div class="p-3 bg-slate-50 rounded-lg">
                 <p class="text-xs text-slate-500">Phone</p>
                 <p class="font-medium">{{ $customer->phone ?? '-' }}</p>
             </div>
+
             <div class="p-3 bg-slate-50 rounded-lg">
                 <p class="text-xs text-slate-500">Email</p>
                 <p class="font-medium text-sm">{{ $customer->email ?? '-' }}</p>
             </div>
+
             <div class="p-3 bg-slate-50 rounded-lg">
                 <p class="text-xs text-slate-500">Credit Limit</p>
                 <p class="font-medium">৳{{ number_format($customer->credit_limit, 2) }}</p>
             </div>
+
             <div class="p-3 bg-slate-50 rounded-lg">
                 <p class="text-xs text-slate-500">Balance Type</p>
                 <p class="font-medium">{{ $customer->balance_type }}</p>
             </div>
+
         </div>
 
         {{-- Summary Cards --}}

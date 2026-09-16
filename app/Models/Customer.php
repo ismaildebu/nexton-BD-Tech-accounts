@@ -11,9 +11,20 @@ class Customer extends Model
     use SoftDeletes, BelongsToCompany;
 
     protected $fillable = [
-        'company_id', 'name', 'phone', 'email', 'address',
-        'trade_license', 'tin', 'customer_type', 'credit_limit',
-        'opening_balance', 'balance_type', 'is_active', 'notes',
+    'company_id',
+    'customer_code',
+    'name',
+    'phone',
+    'email',
+    'address',
+    'trade_license',
+    'tin',
+    'customer_type',
+    'credit_limit',
+    'opening_balance',
+    'balance_type',
+    'is_active',
+    'notes',
     ];
 
     public function company()
