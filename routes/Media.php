@@ -118,6 +118,10 @@ Route::middleware(['auth', 'verified', 'company', 'module:media', 'plan-feature:
                 'store'  => 'can-permission:media-distributions.create',
             ]);
 
+        Route::post('distributions/{distribution}/confirm', [MediaDistributionController::class, 'confirm'])
+            ->name('distributions.confirm')
+            ->middleware('can-permission:media-distributions.create');
+
         Route::get('distributions/{distribution}/dispatch-sheet', [MediaDistributionController::class, 'dispatchSheetPdf'])
             ->name('distributions.dispatch-sheet')
             ->middleware('can-permission:media-distributions.print');

@@ -125,12 +125,6 @@ class MediaDistributionController extends Controller
                 items: $request->validated('items'),
                 notes: $request->validated('notes'),
             );
-        } catch (InsufficientNewspaperStockException $e) {
-            return back()
-                ->withInput()
-                ->withErrors([
-                    'items' => "Distribution rejected — insufficient stock. Available: {$e->available}, Required: {$e->required}.",
-                ]);
         } catch (InvalidArgumentException $e) {
             return back()
                 ->withInput()
@@ -141,7 +135,38 @@ class MediaDistributionController extends Controller
 
         return redirect()
             ->route('media.distributions.show', $distribution)
-            ->with('success', 'Distribution recorded and stock updated!');
+            ->with(
+                'success',
+                'Distribution demand saved as draft. Create the Print Order, receive the newspapers, then confirm the distribution.'
+            );
+    }
+
+    public function confirm(MediaDistribution $distribution): RedirectResponse
+    {
+        $companyId = (int) session('company_id');
+
+        try {
+            $distribution = $this->distributionService->confirm(
+                distribution: $distribution,
+                companyId: $companyId,
+                confirmedBy: (int) auth()->id(),
+            );
+        } catch (InsufficientNewspaperStockException $e) {
+            return back()->withErrors([
+                'stock' => "Distribution cannot be confirmed. Available: {$e->available}, Required: {$e->required}.",
+            ]);
+        } catch (InvalidArgumentException $e) {
+            return back()->withErrors([
+                'distribution' => $e->getMessage(),
+            ]);
+        }
+
+        return redirect()
+            ->route('media.distributions.show', $distribution)
+            ->with(
+                'success',
+                'Distribution confirmed and newspaper stock updated.'
+            );
     }
 
     public function show(MediaDistribution $distribution)

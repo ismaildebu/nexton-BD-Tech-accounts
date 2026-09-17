@@ -216,25 +216,24 @@ final class PrintOrderService
         }
 
         /*
-         * Find the latest Confirmed Distribution for this
-         * publication and company.
-         *
-         * Draft / Cancelled distributions are deliberately ignored.
+         * Find the latest distribution demand for this publication
+         * and company. Draft and Confirmed distributions are valid
+         * demand sources. Cancelled distributions are ignored.
          */
         $distribution = MediaDistribution::query()
             ->where('company_id', $companyId)
             ->where('publication_id', $publication->id)
-            ->where(
-                'status',
-                MediaDistribution::STATUS_CONFIRMED
-            )
+            ->whereIn('status', [
+                MediaDistribution::STATUS_DRAFT,
+                MediaDistribution::STATUS_CONFIRMED,
+            ])
             ->latest('distribution_date')
             ->latest('id')
             ->first();
 
         if (! $distribution) {
             throw new RuntimeException(
-                'No confirmed distribution exists for this publication.'
+                'No distribution demand exists for this publication.'
             );
         }
 
@@ -249,7 +248,7 @@ final class PrintOrderService
 
         if ($demandQuantity <= 0) {
             throw new RuntimeException(
-                'The latest confirmed distribution has no demand quantity.'
+                'The latest distribution demand has no demand quantity.'
             );
         }
 

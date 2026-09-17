@@ -50,7 +50,7 @@ class PrintOrderController extends Controller
      *
      * Operational flow:
      *
-     * Confirmed Distribution
+     * Distribution Demand
      *        ↓
      * Demand Quantity
      *        ↓
@@ -83,17 +83,17 @@ class PrintOrderController extends Controller
             ->get();
 
         /*
-         * Get the latest Confirmed Distribution for each
-         * publication belonging to the current company.
-         *
-         * Draft and Cancelled distributions are ignored.
+         * Get the latest Distribution Demand for each publication
+         * belonging to the current company. Draft and Confirmed
+         * distributions are valid demand sources; Cancelled ones
+         * are ignored.
          */
         $latestDistributions = MediaDistribution::query()
             ->where('company_id', $companyId)
-            ->where(
-                'status',
-                MediaDistribution::STATUS_CONFIRMED
-            )
+            ->whereIn('status', [
+                MediaDistribution::STATUS_DRAFT,
+                MediaDistribution::STATUS_CONFIRMED,
+            ])
             ->orderByDesc('distribution_date')
             ->orderByDesc('id')
             ->get()

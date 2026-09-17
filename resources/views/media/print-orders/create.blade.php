@@ -64,7 +64,7 @@
                 </select>
 
                 <p class="text-xs text-slate-500 mt-1">
-                    Demand is taken automatically from the latest confirmed distribution.
+                    Demand is taken automatically from the latest distribution demand.
                 </p>
             </div>
 
@@ -77,7 +77,7 @@
 
                     <p>
                         <span class="text-slate-500">
-                            Latest Confirmed Distribution:
+                            Latest Distribution Demand:
                         </span>
 
                         <span
@@ -118,7 +118,7 @@
                 >
 
                 <p class="text-xs text-slate-500 mt-1">
-                    Automatically calculated from the latest confirmed distribution.
+                    Automatically calculated from the latest distribution demand.
                 </p>
             </div>
 

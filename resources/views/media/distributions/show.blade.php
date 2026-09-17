@@ -68,6 +68,39 @@
             </tfoot>
         </table>
 
+        @if($distribution->status === \App\Models\MediaDistribution::STATUS_DRAFT)
+            <div class="pt-4 border-t mt-4">
+                <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+                    <p class="text-sm text-amber-800">
+                        This distribution is still a draft. Newspaper stock will be
+                        consumed only when the distribution is confirmed.
+                    </p>
+                </div>
+
+                @if($errors->any())
+                    <div class="bg-red-50 border border-red-200 text-red-700 rounded-lg p-4 mb-4">
+                        @foreach($errors->all() as $error)
+                            <p class="text-sm">{{ $error }}</p>
+                        @endforeach
+                    </div>
+                @endif
+
+                <form
+                    method="POST"
+                    action="{{ route('media.distributions.confirm', $distribution) }}"
+                >
+                    @csrf
+
+                    <button
+                        type="submit"
+                        class="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700"
+                    >
+                        Confirm Distribution
+                    </button>
+                </form>
+            </div>
+        @endif
+
         <div class="pt-4 border-t mt-4 flex items-center justify-between">
             <a href="{{ route('media.distributions.index') }}" class="text-blue-600 hover:underline text-sm">
                 ← Back to Distributions
