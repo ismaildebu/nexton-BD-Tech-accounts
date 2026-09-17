@@ -83,13 +83,14 @@ class Account extends Model
         'balance_type',
     ];
 
-    protected $casts = [
-        'account_code'    => 'integer',
-        'opening_balance' => 'decimal:2',
-        'is_system'       => 'boolean',
-        'is_active'       => 'boolean',
-        'level'           => 'integer',
-    ];
+   // ✅ FIXED
+        protected $casts = [
+            'account_code'    => 'string',        // ✅ integer থেকে string
+            'opening_balance' => 'decimal:4',     // ✅ decimal:2 থেকে decimal:4
+            'is_system'       => 'boolean',
+            'is_active'       => 'boolean',
+            'level'           => 'integer',
+        ];
 
     // ──────────────────────────────────────────────────────────────
     // Booted

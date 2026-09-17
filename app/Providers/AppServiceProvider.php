@@ -14,6 +14,8 @@ use App\Models\MediaReturn;
 use App\Models\MediaCollection;
 use App\Policies\VoucherPolicy;
 use App\Policies\ModulePolicy;
+use App\Policies\AccountPolicy;
+use App\Models\Account;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\Gate;
 
@@ -38,6 +40,7 @@ class AppServiceProvider extends ServiceProvider
         }
 
         Gate::policy(Transaction::class, VoucherPolicy::class);
+        Gate::policy(Account::class, AccountPolicy::class);
         Gate::policy(Publication::class, ModulePolicy::class);
         Gate::policy(MediaParty::class, ModulePolicy::class);
         Gate::policy(PrintPlan::class, ModulePolicy::class);

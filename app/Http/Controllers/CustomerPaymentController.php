@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Company;
 use App\Models\Customer;
 use App\Models\CustomerPayment;
 use App\Services\CustomerPaymentService;
@@ -216,7 +217,9 @@ class CustomerPaymentController extends Controller
                     $payment->metadata ?? [],
                     [
                         'sender_number' => $validated['sender_number'],
-                        'receiver_number' => config('bkash.number'),
+                        'receiver_number' => Company::query()
+                            ->whereKey($payment->company_id)
+                            ->value('bkash_number'),
                     ]
                 ),
             ]);

@@ -93,6 +93,25 @@ class LedgerEntry extends Model
         return $query->where('account_id', $accountId);
     }
 
+    /**
+     * Trial Balance Verification Scope
+     * 
+     * সমস্যা #4 সমাধান: Trial Balance calculation
+     * মোট Debit = মোট Credit যাচাই করুন
+     */
+    public function scopeTrialBalance(\Illuminate\Database\Eloquent\Builder $query, int $companyId, int $fyId): \Illuminate\Database\Eloquent\Builder
+    {
+        return $query
+            ->where('company_id', $companyId)
+            ->where('financial_year_id', $fyId)
+            ->where('is_reversed', false)
+            ->selectRaw('
+                SUM(CAST(debit_amount AS DECIMAL(18,4))) as total_debit,
+                SUM(CAST(credit_amount AS DECIMAL(18,4))) as total_credit,
+                COUNT(*) as entry_count
+            ');
+    }
+
         // ---------------------------------------------------------------
     // Accessors
     // ---------------------------------------------------------------

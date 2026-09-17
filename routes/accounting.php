@@ -8,6 +8,7 @@ use App\Http\Controllers\VoucherTypeController;
 use App\Http\Controllers\VoucherController;
 use App\Http\Controllers\LedgerController;
 use App\Http\Controllers\TrialBalanceController;
+use App\Http\Controllers\TrialBalanceVerificationController;
 use App\Http\Controllers\ProfitLossController;
 use App\Http\Controllers\BalanceSheetController;
 use App\Http\Controllers\CashFlowController;
@@ -102,6 +103,12 @@ Route::middleware(['auth', 'verified', 'company'])->group(function (): void {
                 ->middleware('can-permission:trial-balance.view')->name('trial-balance.print');
             Route::get('/trial-balance/pdf', [TrialBalanceController::class, 'downloadPdf'])
                 ->middleware('can-permission:trial-balance.view')->name('trial-balance.pdf');
+            
+            // সমস্যা #4: Trial Balance Verification (JSON API)
+            Route::get('/trial-balance/verify', [TrialBalanceVerificationController::class, 'verify'])
+                ->middleware('can-permission:trial-balance.view')->name('trial-balance.verify');
+            Route::get('/trial-balance/data', [TrialBalanceVerificationController::class, 'getData'])
+                ->middleware('can-permission:trial-balance.view')->name('trial-balance.data');
                     
             
             Route::get('/profit-loss', [ProfitLossController::class, 'index'])

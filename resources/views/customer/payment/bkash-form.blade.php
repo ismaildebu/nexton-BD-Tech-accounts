@@ -36,7 +36,7 @@
             <ol class="space-y-2 text-sm text-yellow-700 list-decimal list-inside">
                 <li>Send ৳ {{ number_format($payment->amount, 2) }} to Bkash</li>
                 <li>Go to <strong>Send Money</strong> option</li>
-                <li>Enter receiver number: <span class="font-bold">{{ config('bkash.number') }}</span></li>
+                <li>Enter receiver number: <span class="font-bold">{{ \App\Models\Company::query()->whereKey($payment->company_id)->value('bkash_number') }}</span></li>
                 <li>Complete the transaction</li>
                 <li>Copy the transaction ID</li>
                 <li>Enter the details below</li>

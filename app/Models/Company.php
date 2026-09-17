@@ -21,6 +21,7 @@ class Company extends Model
         'owner_name',
         'email',
         'phone',
+        'bkash_number',
         'logo',
         'address',
         'city',

@@ -44,5 +44,5 @@ require __DIR__ . '/purchase.php';
 require __DIR__ . '/inventory.php';
 require __DIR__ . '/hr.php';
 require __DIR__ . '/settings.php';
-require __DIR__ . '/media.php';
+require __DIR__ . '/Media.php';
 require __DIR__ . '/legal-documents.php';

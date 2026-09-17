@@ -831,6 +831,39 @@
 
                         </div>
 
+                        {{-- bKash Number --}}
+                        <div class="settings-field">
+                            <label
+                                for="bkash_number"
+                                class="settings-label"
+                            >
+                                bKash Number
+                            </label>
+
+                            <div class="settings-input-wrap">
+                                <span class="settings-input-icon">
+                                    ৳
+                                </span>
+
+                                <input
+                                    type="text"
+                                    id="bkash_number"
+                                    name="bkash_number"
+                                    class="settings-input @error('bkash_number') is-invalid @enderror"
+                                    value="{{ old('bkash_number', $company->bkash_number) }}"
+                                    maxlength="20"
+                                    placeholder="Enter company bKash number"
+                                    inputmode="numeric"
+                                >
+                            </div>
+
+                            @error('bkash_number')
+                                <div class="settings-error">
+                                    {{ $message }}
+                                </div>
+                            @enderror
+                        </div>
+
 
                         {{-- City --}}
                         <div class="settings-field">

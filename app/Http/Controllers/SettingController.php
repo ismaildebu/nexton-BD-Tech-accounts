@@ -60,6 +60,12 @@ class SettingController extends Controller
                 'max:50',
             ],
 
+            'bkash_number' => [
+                'nullable',
+                'string',
+                'max:20',
+            ],
+
             'address' => [
                 'nullable',
                 'string',
