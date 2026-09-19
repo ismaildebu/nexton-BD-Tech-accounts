@@ -33,7 +33,7 @@ return [
     | Application Debug Mode
     |--------------------------------------------------------------------------
     |
-    | When your application is in debug mode, detailed error messages with
+    | When your application is in debug mode, detailed error messages and
     | stack traces will be shown on every error that occurs within your
     | application. If disabled, a simple generic error page is shown.
     |
@@ -60,8 +60,7 @@ return [
     |--------------------------------------------------------------------------
     |
     | Here you may specify the default timezone for your application, which
-    | will be used by the PHP date and date-time functions. The timezone
-    | is set to "UTC" by default as it is suitable for most use cases.
+    | will be used by the framework's date and date-time functions.
     |
     */
 
@@ -73,8 +72,7 @@ return [
     |--------------------------------------------------------------------------
     |
     | The application locale determines the default locale that will be used
-    | by Laravel's translation / localization methods. This option can be
-    | set to any locale for which you plan to have translation strings.
+    | by Laravel's translation / localization methods.
     |
     */
 
@@ -107,12 +105,26 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Super Admin Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Super admin credentials are provided through environment variables.
+    | The password must never be hardcoded in source code.
+    |
+    */
+
+    'super_admin' => [
+        'email' => env('SUPER_ADMIN_EMAIL'),
+        'password' => env('SUPER_ADMIN_PASSWORD'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Maintenance Mode Driver
     |--------------------------------------------------------------------------
     |
-    | These configuration options determine the driver used to determine and
-    | manage Laravel's "maintenance mode" status. The "cache" driver will
-    | allow maintenance mode to be controlled across multiple machines.
+    | These configuration options determine the driver used to determine
+    | and manage the application's maintenance mode status.
     |
     | Supported drivers: "file", "cache"
     |

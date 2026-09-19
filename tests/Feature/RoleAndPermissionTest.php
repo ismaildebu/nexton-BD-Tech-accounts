@@ -13,7 +13,16 @@ beforeEach(function () {
 
 it('seeds all expected roles', function () {
     $roles = Role::pluck('name')->sort()->values()->all();
-    expect($roles)->toContain('super-admin', 'admin', 'accountant', 'cashier', 'sales', 'auditor', 'viewer');
+
+    expect($roles)->toContain(
+        'super-admin',
+        'admin',
+        'accountant',
+        'cashier',
+        'sales',
+        'auditor',
+        'viewer'
+    );
 });
 
 it('seeds the full permission list grouped by module', function () {
@@ -23,6 +32,7 @@ it('seeds the full permission list grouped by module', function () {
 
 it('gives admin every permission except company create/delete and role/permission management', function () {
     $admin = Role::findByName('admin');
+
     expect($admin->permissions->count())->toBeGreaterThan(100);
     expect($admin->permissions->pluck('name'))->not->toContain('companies.create');
     expect($admin->permissions->pluck('name'))->not->toContain('companies.delete');
@@ -32,6 +42,7 @@ it('gives admin every permission except company create/delete and role/permissio
 
 it('gives super-admin every permission', function () {
     $superAdmin = Role::findByName('super-admin');
+
     expect($superAdmin->permissions->count())->toBe(Permission::count());
 });
 
@@ -93,6 +104,7 @@ it('creates a role with selected permissions', function () {
     ]);
 
     $role = Role::findByName('branch_manager');
+
     $response->assertRedirect(route('system.roles.show', $role));
 
     expect($role->permissions->pluck('name')->all())
@@ -123,4 +135,49 @@ it('enforces permission middleware on protected routes', function () {
         ->assertForbidden();
 
     expect(Role::where('name', 'rogue_role')->exists())->toBeFalse();
+});
+
+it('allows admin and super-admin through the admin middleware', function () {
+    \Illuminate\Support\Facades\Route::middleware('admin')
+        ->get('/test-admin-middleware', fn () => response('ok'));
+
+    $admin = User::factory()->create();
+    $admin->assignRole('admin');
+
+    $superAdmin = User::factory()->create();
+    $superAdmin->assignRole('super-admin');
+
+    $this->actingAs($admin)
+        ->get('/test-admin-middleware')
+        ->assertOk();
+
+    $this->actingAs($superAdmin)
+        ->get('/test-admin-middleware')
+        ->assertOk();
+});
+
+it('does not allow users without an admin role through the admin middleware', function () {
+    \Illuminate\Support\Facades\Route::middleware('admin')
+        ->get('/test-admin-middleware', fn () => response('ok'));
+
+    $viewer = User::factory()->create();
+    $viewer->assignRole('viewer');
+
+    $this->actingAs($viewer)
+        ->get('/test-admin-middleware')
+        ->assertForbidden();
+});
+
+it('does not allow user id one to bypass the admin middleware', function () {
+    \Illuminate\Support\Facades\Route::middleware('admin')
+        ->get('/test-admin-middleware', fn () => response('ok'));
+
+    $user = User::factory()->create([
+        'id' => 1,
+        'role' => 'Manager',
+    ]);
+
+    $this->actingAs($user)
+        ->get('/test-admin-middleware')
+        ->assertForbidden();
 });

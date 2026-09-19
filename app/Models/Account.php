@@ -83,14 +83,13 @@ class Account extends Model
         'balance_type',
     ];
 
-   // ✅ FIXED
-        protected $casts = [
-            'account_code'    => 'string',        // ✅ integer থেকে string
-            'opening_balance' => 'decimal:4',     // ✅ decimal:2 থেকে decimal:4
-            'is_system'       => 'boolean',
-            'is_active'       => 'boolean',
-            'level'           => 'integer',
-        ];
+    protected $casts = [
+        'account_code'    => 'string',
+        'opening_balance' => 'decimal:4',
+        'is_system'       => 'boolean',
+        'is_active'       => 'boolean',
+        'level'           => 'integer',
+    ];
 
     // ──────────────────────────────────────────────────────────────
     // Booted
@@ -323,24 +322,30 @@ class Account extends Model
      * -----------------------
      * Net Balance          0
      */
-    public function getCurrentBalanceAttribute(): float
+    public function getCurrentBalanceAttribute(): string
     {
-        $debitTotal = $this->allLedgerEntries()
-            ->sum('debit_amount');
+        $debitTotal = (string) (
+            $this->allLedgerEntries()->sum('debit_amount') ?? '0'
+        );
 
-        $creditTotal = $this->allLedgerEntries()
-            ->sum('credit_amount');
+        $creditTotal = (string) (
+            $this->allLedgerEntries()->sum('credit_amount') ?? '0'
+        );
+
+        $openingBalance = (string) ($this->opening_balance ?? '0');
 
         if ($this->isDebitNormal()) {
-            return (float) (
-                $this->opening_balance
-                + ($debitTotal - $creditTotal)
+            return bcadd(
+                $openingBalance,
+                bcsub($debitTotal, $creditTotal, 2),
+                2
             );
         }
 
-        return (float) (
-            $this->opening_balance
-            + ($creditTotal - $debitTotal)
+        return bcadd(
+            $openingBalance,
+            bcsub($creditTotal, $debitTotal, 2),
+            2
         );
     }
 

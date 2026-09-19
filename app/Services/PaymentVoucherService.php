@@ -4,14 +4,19 @@ namespace App\Services;
 
 use App\Models\Account;
 use App\Models\CustomerPayment;
+use App\Models\FinancialYear;
 use App\Models\Transaction;
 use App\Models\TransactionDetail;
 use App\Models\VoucherType;
-use App\Models\FinancialYear;
 use Illuminate\Support\Facades\DB;
 
 class PaymentVoucherService
 {
+    public function __construct(
+        private readonly VoucherNumberService $voucherNumberService,
+    ) {
+    }
+
     /**
      * Customer Payment থেকে Receipt Voucher তৈরি করা।
      *
@@ -62,8 +67,16 @@ class PaymentVoucherService
                 ->where('company_id', $payment->company_id)
                 ->where('is_active', true)
                 ->where('is_closed', false)
-                ->whereDate('start_date', '<=', $payment->payment_date)
-                ->whereDate('end_date', '>=', $payment->payment_date)
+                ->whereDate(
+                    'start_date',
+                    '<=',
+                    $payment->payment_date
+                )
+                ->whereDate(
+                    'end_date',
+                    '>=',
+                    $payment->payment_date
+                )
                 ->first();
 
             if ($financialYear === null) {
@@ -85,9 +98,6 @@ class PaymentVoucherService
                 );
             }
 
-
-
-
             /*
              * Accounts Receivable account resolve করা।
              */
@@ -107,7 +117,8 @@ class PaymentVoucherService
             $voucherTypeId = $this->getReceiptVoucherTypeId(
                 $payment->company_id
             );
-                        /*
+
+            /*
              * Customer name safely resolve করা।
              */
             $customerName =
@@ -116,15 +127,24 @@ class PaymentVoucherService
                 ?? 'Customer';
 
             /*
+             * Central VoucherNumberService ব্যবহার করে
+             * Receipt Voucher number generate করা।
+             */
+            $voucherNumber = $this->voucherNumberService->generate(
+                $payment->company_id,
+                $financialYear->id,
+                $voucherTypeId,
+                $financialYear->start_date->year,
+            );
+
+            /*
              * Receipt Voucher তৈরি করা।
              */
             $voucher = Transaction::create([
                 'company_id' => $payment->company_id,
                 'financial_year_id' => $financialYear->id,
                 'voucher_type_id' => $voucherTypeId,
-                'voucher_number' => $this->generateVoucherNumber(
-                    $payment->company_id
-                ),
+                'voucher_number' => $voucherNumber,
                 'voucher_date' => $payment->payment_date,
                 'reference_type' => 'CustomerPayment',
                 'reference_id' => $payment->id,
@@ -231,61 +251,28 @@ class PaymentVoucherService
     }
 
     /**
-         * Receipt Voucher Type ID resolve করা।
-         */
-        private function getReceiptVoucherTypeId(
-            int $companyId
-            ): int {
-            $voucherType = VoucherType::query()
-                ->where('company_id', $companyId)
-                ->where('nature', VoucherType::NATURE_RECEIPT)
-                ->where('is_active', true)
-                ->where('status', 1)
-                ->first();
-
-            if ($voucherType === null) {
-                throw new \RuntimeException(
-                    'Receipt voucher type is not configured.'
-                );
-            }
-
-            return $voucherType->id;
-        }
-
-    /**
-     * Receipt Voucher number generate করা।
-     *
-     * Example:
-     * RCP-0001
-     * RCP-0002
+     * Receipt Voucher Type ID resolve করা।
      */
-    private function generateVoucherNumber(
+    private function getReceiptVoucherTypeId(
         int $companyId
-    ): string {
-        $lastVoucher = Transaction::query()
+    ): int {
+        $voucherType = VoucherType::query()
             ->where('company_id', $companyId)
-            ->where('voucher_number', 'like', 'RCP-%')
-            ->lockForUpdate()
-            ->orderByDesc('id')
+            ->where(
+                'nature',
+                VoucherType::NATURE_RECEIPT
+            )
+            ->where('is_active', true)
+            ->where('status', 1)
             ->first();
 
-        $nextNumber = 1;
-
-        if ($lastVoucher !== null) {
-            $lastNumber = (int) substr(
-                $lastVoucher->voucher_number,
-                -4
+        if ($voucherType === null) {
+            throw new \RuntimeException(
+                'Receipt voucher type is not configured.'
             );
-
-            $nextNumber = $lastNumber + 1;
         }
 
-        return 'RCP-' . str_pad(
-            (string) $nextNumber,
-            4,
-            '0',
-            STR_PAD_LEFT
-        );
+        return $voucherType->id;
     }
 
     /**

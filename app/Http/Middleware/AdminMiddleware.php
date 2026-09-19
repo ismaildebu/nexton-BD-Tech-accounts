@@ -4,22 +4,18 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 class AdminMiddleware
 {
-    public function handle(Request $request, Closure $next)
+    public function handle(Request $request, Closure $next): Response
     {
-        // For testing: Allow user ID 1 (super admin)
-        if (auth()->check() && auth()->id() === 1) {
-            return $next($request);
+        $user = $request->user();
+
+        if (!$user || !$user->hasAnyRole(['super-admin', 'admin'])) {
+            abort(403, 'Unauthorized - Admin only');
         }
 
-        // Check if user has admin role
-        if (auth()->check() && auth()->user()->role === 'admin') {
-            return $next($request);
-        }
-
-        // Deny access
-        abort(403, 'Unauthorized - Admin only');
+        return $next($request);
     }
 }

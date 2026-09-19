@@ -3,39 +3,48 @@
 namespace Database\Seeders;
 
 use App\Models\User;
-use Spatie\Permission\Models\Role;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
+use Spatie\Permission\Models\Role;
 
 class SuperAdminSeeder extends Seeder
 {
     /**
-     * সুপার অ্যাডমিন ইউজার তৈরি বা আপডেট করুন।
-     * 
-     * নোট: এই seeder রান করার আগে RoleAndPermissionSeeder চলা উচিত।
+     * Create the super admin user if it does not exist.
+     *
+     * Note: RoleAndPermissionSeeder should run before this seeder.
      */
     public function run(): void
     {
-        // ১. 'super-admin' role exist করে কিনা চেক করুন
         $superAdminRole = Role::where('name', 'super-admin')
             ->where('guard_name', 'web')
             ->first();
 
         if (!$superAdminRole) {
             $this->command->warn(
-                '⚠️  Warning: "super-admin" role does not exist. ' .
+                'Warning: "super-admin" role does not exist. ' .
                 'Run RoleAndPermissionSeeder first!'
             );
+
             return;
         }
 
-        // ২. সুপার অ্যাডমিন ইউজার তৈরি বা আপডেট করুন
-        $user = User::updateOrCreate(
-            ['email' => 'mallick.jess@gmail.com'],
+        $email = config('app.super_admin.email');
+        $password = config('app.super_admin.password');
+
+        if (!$email || !$password) {
+            $this->command->error(
+                'Super admin credentials are not configured.'
+            );
+
+            return;
+        }
+
+        $user = User::firstOrCreate(
+            ['email' => $email],
             [
                 'name'              => 'Super Admin',
-                'email'             => 'mallick.jess@gmail.com',
-                'password'          => Hash::make('624606624606'),
+                'password'          => Hash::make($password),
                 'role'              => 'Super Admin',
                 'status'            => true,
                 'company_id'        => null,
@@ -43,12 +52,10 @@ class SuperAdminSeeder extends Seeder
             ]
         );
 
-        // ৩. রোল sync করুন
         $user->syncRoles(['super-admin']);
 
         $this->command->info(
-            "✅ Super Admin user created/updated: {$user->email} " .
-            "with role: super-admin"
+            "Super Admin user verified: {$user->email} with role: super-admin"
         );
     }
 }

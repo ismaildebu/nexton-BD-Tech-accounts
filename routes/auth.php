@@ -43,12 +43,10 @@ Route::middleware('guest')->group(function () {
         ->middleware('throttle:6,1')
         ->name('company.register');
 
-    Route::post('company/register', [CompanySignupController::class, 'store'])
-        ->middleware('throttle:6,1');
-    
+        
     Route::post('company/register', [CompanySignupController::class, 'store'])
         ->middleware('throttle:6,1')
-        ->name('company.register.store'); // ✅ এটা add করুন
+        ->name('company.register.store'); 
 
     Route::get('login', [AuthenticatedSessionController::class, 'create'])
         ->name('login');

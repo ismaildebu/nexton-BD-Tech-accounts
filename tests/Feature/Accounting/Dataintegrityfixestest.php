@@ -447,6 +447,143 @@ $this->assertNotSame($tx1->id, $tx2->id);
         app(LedgerPostingService::class)->post($transaction);
     }
 
+
+     // ================================================================
+// FIX #10: Monetary Balance Uses Decimal Arithmetic
+// ================================================================
+
+/**
+ * Test that account current balance preserves decimal precision
+ * without PHP float arithmetic (FIX #10).
+ */
+public function test_account_current_balance_uses_decimal_arithmetic(): void
+{
+    $this->cashAccount->update([
+        'opening_balance' => '0.10',
+    ]);
+
+    $transaction = Transaction::create([
+        'company_id' => $this->company1->id,
+        'financial_year_id' => $this->financialYear1->id,
+        'voucher_type_id' => $this->voucherType->id,
+        'voucher_number' => 'JV-DECIMAL-001',
+        'voucher_date' => '2026-08-29',
+        'reference_number' => null,
+        'total_debit' => '0.50',
+        'total_credit' => '0.50',
+        'transaction_date' => '2026-08-29',
+        'voucher_no' => 'LEGACY-DECIMAL-001',
+        'transaction_type' => 'Journal',
+        'amount' => '0.50',
+        'description' => 'Decimal arithmetic test',
+        'account_id' => $this->cashAccount->id,
+        'narration' => 'Decimal precision test',
+        'status' => Transaction::STATUS_APPROVED,
+        'created_by' => $this->user->id,
+    ]);
+
+    LedgerEntry::create([
+        'transaction_id' => $transaction->id,
+        'financial_year_id' => $this->financialYear1->id,
+        'voucher_type_id' => $this->voucherType->id,
+        'voucher_number' => 'JV-DECIMAL-001',
+        'voucher_date' => '2026-08-29',
+        'debit_amount' => '0.20',
+        'credit_amount' => '0.00',
+        'is_reversed' => false,
+        'company_id' => $this->company1->id,
+        'account_id' => $this->cashAccount->id,
+        'entry_date' => '2026-08-29',
+        'description' => 'Decimal debit 1',
+    ]);
+
+    LedgerEntry::create([
+        'transaction_id' => $transaction->id,
+        'financial_year_id' => $this->financialYear1->id,
+        'voucher_type_id' => $this->voucherType->id,
+        'voucher_number' => 'JV-DECIMAL-001',
+        'voucher_date' => '2026-08-29',
+        'debit_amount' => '0.30',
+        'credit_amount' => '0.00',
+        'is_reversed' => false,
+        'company_id' => $this->company1->id,
+        'account_id' => $this->cashAccount->id,
+        'entry_date' => '2026-08-29',
+        'description' => 'Decimal debit 2',
+    ]);
+
+    $balance = $this->cashAccount->fresh()->current_balance;
+
+    $this->assertSame('0.60', $balance);
+}
+
+// ================================================================
+// FIX #11: Database-Level Double-Entry Invariants
+// ================================================================
+
+/**
+ * Test that a transaction detail cannot contain both debit and credit.
+ */
+public function test_transaction_detail_cannot_have_both_debit_and_credit(): void
+{
+    $transaction = $this->makeTransaction(
+        Transaction::STATUS_APPROVED,
+        'JV-CHECK-001'
+    );
+
+    $this->expectException(QueryException::class);
+
+    TransactionDetail::create([
+        'transaction_id' => $transaction->id,
+        'account_id' => $this->cashAccount->id,
+        'sort_order' => 3,
+        'description' => 'Invalid double-sided entry',
+        'debit_amount' => '100.00',
+        'credit_amount' => '50.00',
+    ]);
+}
+
+/**
+ * Test that a transaction detail cannot contain zero debit and credit.
+ */
+public function test_transaction_detail_cannot_have_zero_debit_and_credit(): void
+{
+    $transaction = $this->makeTransaction(
+        Transaction::STATUS_APPROVED,
+        'JV-CHECK-002'
+    );
+
+    $this->expectException(QueryException::class);
+
+    TransactionDetail::create([
+        'transaction_id' => $transaction->id,
+        'account_id' => $this->cashAccount->id,
+        'sort_order' => 3,
+        'description' => 'Invalid zero entry',
+        'debit_amount' => '0.00',
+        'credit_amount' => '0.00',
+    ]);
+}
+
+/**
+ * Test that transaction totals cannot be unbalanced.
+ */
+public function test_transaction_totals_must_be_balanced(): void
+{
+    $transaction = $this->makeTransaction(
+        Transaction::STATUS_APPROVED,
+        'JV-CHECK-003'
+    );
+
+    $this->expectException(QueryException::class);
+
+    $transaction->update([
+        'total_debit' => '1000.00',
+        'total_credit' => '900.00',
+    ]);
+}
+
+
     // ================================================================
     // Helper: Create Transaction
     // ================================================================

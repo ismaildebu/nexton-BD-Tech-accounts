@@ -166,42 +166,36 @@ final class SalesOrderAccountingService
                     . 'Sales Order accounting entries.'
                 );
             }
+            
             $transaction = Transaction::create([
-                'company_id'        => $lockedSalesOrder->company_id,
-                'financial_year_id' => $financialYearId,
-                'voucher_type_id'   => $voucherType->id,
-                'created_by'        => $userId,
+            'company_id'        => $lockedSalesOrder->company_id,
+            'financial_year_id' => $financialYearId,
+            'voucher_type_id'   => $voucherType->id,
+            'created_by'        => $userId,
 
-                'account_id'        => $receivableAccount->id,
-                'transaction_type'  => 'Journal',
-                'amount'            => $totalAmount,
-                'transaction_date'  =>
-                    $lockedSalesOrder->order_date ?? $now,
+            'voucher_number'    =>
+                'SO-' . $lockedSalesOrder->so_number,
+            'voucher_date'      =>
+                $lockedSalesOrder->order_date ?? $now,
 
-                'voucher_no'        =>
-                    'SO-' . $lockedSalesOrder->so_number,
-                'voucher_number'    =>
-                    'SO-' . $lockedSalesOrder->so_number,
-                'voucher_date'      =>
-                    $lockedSalesOrder->order_date ?? $now,
+            'reference_type'    => 'SalesOrder',
+            'reference_id'      => $lockedSalesOrder->id,
+            'reference_number'  => $referenceNumber,
 
-                'reference_type'    => 'SalesOrder',
-                'reference_id'      => $lockedSalesOrder->id,
-                'reference_number'  => $referenceNumber,
+            'narration'         =>
+                "Sales Order #{$lockedSalesOrder->so_number} confirmed",
 
-                'narration'         =>
-                    "Sales Order #{$lockedSalesOrder->so_number} confirmed",
+            'total_debit'       => $totalAmount,
+            'total_credit'      => $totalAmount,
 
-                'total_debit'       => $totalAmount,
-                'total_credit'      => $totalAmount,
+            'status'            => Transaction::STATUS_APPROVED,
 
-                'status'            => Transaction::STATUS_APPROVED,
-
-                'approved_by'       => $userId,
-                'approved_at'       => $now,
-                'approval_note'     =>
-                    'Automatically approved for Sales Order accounting.',
-            ]);
+            'approved_by'       => $userId,
+            'approved_at'       => $now,
+            'approval_note'     =>
+                'Automatically approved for Sales Order accounting.',
+        ]);
+            
 
             TransactionDetail::insert([
                 [
