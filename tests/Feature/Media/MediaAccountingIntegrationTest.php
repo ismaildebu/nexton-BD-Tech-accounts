@@ -6,7 +6,6 @@ use App\Models\Account;
 use App\Models\LedgerEntry;
 use App\Models\MediaCollection;
 use App\Models\MediaDistribution;
-use App\Models\MediaReturn;
 use App\Models\NewspaperStockMovement;
 use App\Models\Publication;
 use App\Models\Transaction;
@@ -19,7 +18,11 @@ uses(CreatesMediaCompany::class);
 
 beforeEach(function () {
     $this->company = $this->makeMediaCompany();
-    session(['company_id' => $this->company->id]);
+
+    session([
+        'company_id' => $this->company->id,
+    ]);
+
     $this->user = $this->makeMediaAdmin($this->company);
     $this->stock = new NewspaperStockService();
 });
@@ -67,7 +70,19 @@ it('posts a balanced distribution journal and links the transaction atomically',
         '2026-09-01',
         $this->company->id,
         $this->user->id,
-        [['media_party_id' => $party->id, 'paid_quantity' => 100, 'rate' => 5]],
+        [
+            [
+                'media_party_id' => $party->id,
+                'paid_quantity' => 100,
+                'rate' => 5,
+            ],
+        ],
+    );
+
+    $distribution = app(DistributionService::class)->confirm(
+        $distribution,
+        $this->company->id,
+        $this->user->id,
     );
 
     $distribution->refresh()->load('transaction');
@@ -83,26 +98,49 @@ it('posts a balanced distribution journal and links the transaction atomically',
         ->and($distribution->transaction_id)->toBe($transaction->id)
         ->and($this->stock->balance($publication))->toBe(900);
 
-    expect($transaction->details->sum(fn ($detail) => (float) $detail->debit_amount))
-        ->toBe(500.0)
-        ->and($transaction->details->sum(fn ($detail) => (float) $detail->credit_amount))
-        ->toBe(500.0);
+    expect(
+        $transaction->details->sum(
+            fn ($detail) => (float) $detail->debit_amount
+        )
+    )->toBe(500.0)
+        ->and(
+            $transaction->details->sum(
+                fn ($detail) => (float) $detail->credit_amount
+            )
+        )->toBe(500.0);
 });
 
 it('rolls back distribution and stock when accounting configuration is missing', function () {
     $publication = accountingPublication();
     $party = accountingParty();
-    $publication->update(['sales_account_id' => null]);
 
-    expect(fn () => app(DistributionService::class)->create(
+    $publication->update([
+        'sales_account_id' => null,
+    ]);
+
+    $distribution = app(DistributionService::class)->create(
         $publication,
         '2026-09-01',
         $this->company->id,
         $this->user->id,
-        [['media_party_id' => $party->id, 'paid_quantity' => 100, 'rate' => 5]],
-    ))->toThrow(\InvalidArgumentException::class);
+        [
+            [
+                'media_party_id' => $party->id,
+                'paid_quantity' => 100,
+                'rate' => 5,
+            ],
+        ],
+    );
 
-    expect(MediaDistribution::count())->toBe(0)
+    expect(fn () => app(DistributionService::class)->confirm(
+        $distribution,
+        $this->company->id,
+        $this->user->id,
+    ))->toThrow(InvalidArgumentException::class);
+
+    expect(MediaDistribution::count())->toBe(1)
+        ->and($distribution->fresh()->status)
+        ->toBe(MediaDistribution::STATUS_DRAFT)
         ->and(Transaction::count())->toBe(0)
         ->and(LedgerEntry::count())->toBe(0)
         ->and($this->stock->balance($publication))->toBe(1000);
@@ -117,7 +155,19 @@ it('posts a balanced return journal and reduces party receivable', function () {
         '2026-09-01',
         $this->company->id,
         $this->user->id,
-        [['media_party_id' => $party->id, 'paid_quantity' => 100, 'rate' => 5]],
+        [
+            [
+                'media_party_id' => $party->id,
+                'paid_quantity' => 100,
+                'rate' => 5,
+            ],
+        ],
+    );
+
+    $distribution = app(DistributionService::class)->confirm(
+        $distribution,
+        $this->company->id,
+        $this->user->id,
     );
 
     $return = app(ReturnService::class)->create(
@@ -125,7 +175,13 @@ it('posts a balanced return journal and reduces party receivable', function () {
         '2026-09-02',
         $this->company->id,
         $this->user->id,
-        [['media_party_id' => $party->id, 'paid_return_quantity' => 20, 'free_return_quantity' => 0]],
+        [
+            [
+                'media_party_id' => $party->id,
+                'paid_return_quantity' => 20,
+                'free_return_quantity' => 0,
+            ],
+        ],
         $distribution->id,
     );
 
@@ -144,9 +200,13 @@ it('posts a balanced return journal and reduces party receivable', function () {
 
 it('posts a balanced collection receipt journal', function () {
     $party = accountingParty();
+
     $cash = Account::create([
         'company_id' => $this->company->id,
-        'account_code' => Account::generateNextCode(Account::TYPE_ASSET, $this->company->id),
+        'account_code' => Account::generateNextCode(
+            Account::TYPE_ASSET,
+            $this->company->id
+        ),
         'account_name' => 'Media Cash',
         'account_type' => Account::TYPE_ASSET,
         'nature' => Account::NATURE_CASH,
@@ -167,7 +227,8 @@ it('posts a balanced collection receipt journal', function () {
         'created_by' => $this->user->id,
     ]);
 
-    app(\App\Services\Media\MediaAccountingService::class)->postCollection($collection);
+    app(\App\Services\Media\MediaAccountingService::class)
+        ->postCollection($collection);
 
     $collection->refresh()->load('transaction');
     $transaction = $collection->transaction;

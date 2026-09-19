@@ -46,6 +46,12 @@ it('creates a distribution for exactly one party and decrements stock accordingl
         [['media_party_id' => $party->id, 'paid_quantity' => 100, 'rate' => 5]],
     );
 
+        $distribution = $this->service->confirm(
+        $distribution,
+        $this->company->id,
+        $this->user->id,
+    );
+
     expect($distribution->status)->toBe(MediaDistribution::STATUS_CONFIRMED)
         ->and($distribution->items)->toHaveCount(1)
         ->and($distribution->items->first()->paid_quantity)->toBe(100)
@@ -162,12 +168,24 @@ it('rejects the whole distribution when stock is insufficient, and creates nothi
     $this->stock->addStock($publication, NewspaperStockMovement::TYPE_PRINTED, 50, '2026-09-01');
     $party = makeDistributionParty(['free_percentage' => 0]);
 
-    expect(fn () => $this->service->create($publication, '2026-09-01', $this->company->id, $this->user->id, [
-        ['media_party_id' => $party->id, 'paid_quantity' => 51, 'rate' => 5],
-    ]))->toThrow(InsufficientNewspaperStockException::class);
+    
+    $distribution = $this->service->create(
+    $publication,
+    '2026-09-01',
+    $this->company->id,
+    $this->user->id,
+    [['media_party_id' => $party->id, 'paid_quantity' => 51, 'rate' => 5]],
+    );
 
-    expect(MediaDistribution::count())->toBe(0)
-        ->and($this->stock->balance($publication))->toBe(50);
+    expect(fn () => $this->service->confirm(
+        $distribution,
+        $this->company->id,
+        $this->user->id,
+    ))->toThrow(InsufficientNewspaperStockException::class);
+
+    expect(MediaDistribution::count())->toBe(1)
+    ->and($distribution->fresh()->status)->toBe(MediaDistribution::STATUS_DRAFT)
+    ->and($this->stock->balance($publication))->toBe(50);
 });
 
 it('allows a distribution that consumes exactly the available stock', function () {
@@ -178,6 +196,12 @@ it('allows a distribution that consumes exactly the available stock', function (
     $distribution = $this->service->create($publication, '2026-09-01', $this->company->id, $this->user->id, [
         ['media_party_id' => $party->id, 'paid_quantity' => 100, 'rate' => 5], // total 110
     ]);
+
+    $distribution = $this->service->confirm(
+    $distribution,
+    $this->company->id,
+    $this->user->id,
+);
 
     expect($distribution->total_quantity)->toBe(110)
         ->and($this->stock->balance($publication))->toBe(0);
@@ -210,9 +234,21 @@ it('keeps stock and distributions isolated between companies', function () {
     $this->stock->addStock($publicationA, NewspaperStockMovement::TYPE_PRINTED, 1000, '2026-09-01');
     $partyA = makeDistributionParty();
 
-    $this->service->create($publicationA, '2026-09-01', $this->company->id, $this->user->id, [
+    $distributionA = $this->service->create(
+    $publicationA,
+    '2026-09-01',
+    $this->company->id,
+    $this->user->id,
+    [
         ['media_party_id' => $partyA->id, 'paid_quantity' => 100, 'rate' => 5],
-    ]);
+    ],
+);
+
+$this->service->confirm(
+    $distributionA,
+    $this->company->id,
+    $this->user->id,
+);
 
     $companyB = $this->makeMediaCompany(['company_name' => 'Company B']);
     session(['company_id' => $companyB->id]);
@@ -221,9 +257,21 @@ it('keeps stock and distributions isolated between companies', function () {
     $this->stock->addStock($publicationB, NewspaperStockMovement::TYPE_PRINTED, 500, '2026-09-01');
     $partyB = makeDistributionParty();
 
-    $this->service->create($publicationB, '2026-09-01', $companyB->id, $userB->id, [
+    $distributionB = $this->service->create(
+    $publicationB,
+    '2026-09-01',
+    $companyB->id,
+    $userB->id,
+    [
         ['media_party_id' => $partyB->id, 'paid_quantity' => 50, 'rate' => 5],
-    ]);
+    ],
+);
+
+$this->service->confirm(
+    $distributionB,
+    $companyB->id,
+    $userB->id,
+);
 
     expect(MediaDistribution::withoutGlobalScopes()->where('company_id', $this->company->id)->count())->toBe(1)
         ->and(MediaDistribution::withoutGlobalScopes()->where('company_id', $companyB->id)->count())->toBe(1)

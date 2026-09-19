@@ -71,6 +71,7 @@ it('records a standalone return and adds stock back', function () {
             $dist = $this->distService->create($pub, '2026-08-31', $this->company->id, $this->user->id, [
                 ['media_party_id' => $party->id, 'paid_quantity' => 15, 'rate' => 5],
             ]);
+            $this->distService->confirm($dist, $this->company->id, $this->user->id);
 
             $return = $this->service->create(
                 $pub, '2026-09-01', $this->company->id, $this->user->id,
@@ -94,6 +95,7 @@ it('links return to distribution and updates net_quantity on the distribution it
     $dist = $this->distService->create($pub, '2026-09-01', $this->company->id, $this->user->id, [
         ['media_party_id' => $party->id, 'paid_quantity' => 100, 'rate' => 5],
     ]);
+    $this->distService->confirm($dist, $this->company->id, $this->user->id);
 
     $this->service->create(
         $pub, '2026-09-02', $this->company->id, $this->user->id,
@@ -116,6 +118,7 @@ it('allows returning exactly the full distributed quantity (exact return)', func
     $dist = $this->distService->create($pub, '2026-09-01', $this->company->id, $this->user->id, [
         ['media_party_id' => $party->id, 'paid_quantity' => 50, 'rate' => 5],
     ]);
+    $this->distService->confirm($dist, $this->company->id, $this->user->id);
 
     $return = $this->service->create(
         $pub, '2026-09-02', $this->company->id, $this->user->id,
@@ -136,6 +139,7 @@ it('rejects a return that exceeds the distribution net_quantity', function () {
     $dist = $this->distService->create($pub, '2026-09-01', $this->company->id, $this->user->id, [
         ['media_party_id' => $party->id, 'paid_quantity' => 50, 'rate' => 5],
     ]);
+    $this->distService->confirm($dist, $this->company->id, $this->user->id);
 
     expect(fn () => $this->service->create(
         $pub, '2026-09-02', $this->company->id, $this->user->id,
@@ -154,6 +158,7 @@ it('allows partial returns on multiple occasions, net_quantity decrements correc
     $dist = $this->distService->create($pub, '2026-09-01', $this->company->id, $this->user->id, [
         ['media_party_id' => $party->id, 'paid_quantity' => 100, 'rate' => 5],
     ]);
+    $this->distService->confirm($dist, $this->company->id, $this->user->id);
 
     $this->service->create(
         $pub, '2026-09-02', $this->company->id, $this->user->id,
@@ -181,6 +186,7 @@ it('rejects a return for a party that was not in the linked distribution', funct
     $dist = $this->distService->create($pub, '2026-09-01', $this->company->id, $this->user->id, [
         ['media_party_id' => $party->id, 'paid_quantity' => 100, 'rate' => 5],
     ]);
+    $this->distService->confirm($dist, $this->company->id, $this->user->id);
 
     expect(fn () => $this->service->create(
         $pub, '2026-09-02', $this->company->id, $this->user->id,
@@ -198,6 +204,7 @@ it('rejects a return for a party that was not in the linked distribution', funct
             $dist = $this->distService->create($pub, '2026-08-31', $this->company->id, $this->user->id, [
                 ['media_party_id' => $party->id, 'paid_quantity' => 25, 'rate' => 5],
             ]);
+            $this->distService->confirm($dist, $this->company->id, $this->user->id);
 
             $balanceBefore = $this->stock->balance($pub);
 
@@ -247,6 +254,7 @@ it('rejects negative return quantities', function () {
                 ['media_party_id' => $party1->id, 'paid_quantity' => 10, 'rate' => 5],
                 ['media_party_id' => $party2->id, 'paid_quantity' => 5,  'rate' => 5],
             ]);
+            $this->distService->confirm($dist, $this->company->id, $this->user->id);
 
             $return = $this->service->create(
                 $pub, '2026-09-01', $this->company->id, $this->user->id,
@@ -271,6 +279,7 @@ it('rejects negative return quantities', function () {
             $distA = $this->distService->create($pubA, '2026-08-31', $this->company->id, $this->user->id, [
                 ['media_party_id' => $partyA->id, 'paid_quantity' => 10, 'rate' => 5],
             ]);
+            $this->distService->confirm($distA, $this->company->id, $this->user->id);
 
             $this->service->create(
                 $pubA, '2026-09-01', $this->company->id, $this->user->id,
@@ -287,6 +296,7 @@ it('rejects negative return quantities', function () {
             $distB = $this->distService->create($pubB, '2026-08-31', $companyB->id, $userB->id, [
                 ['media_party_id' => $partyB->id, 'paid_quantity' => 20, 'rate' => 5],
             ]);
+            $this->distService->confirm($distB, $companyB->id, $userB->id);
 
             $this->service->create(
                 $pubB, '2026-09-01', $companyB->id, $userB->id,
@@ -299,3 +309,5 @@ it('rejects negative return quantities', function () {
                 ->and($this->stock->balance($pubA))->toBe(500)
                 ->and($this->stock->balance($pubB))->toBe(500);
         });
+
+

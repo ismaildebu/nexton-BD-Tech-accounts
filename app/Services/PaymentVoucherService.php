@@ -7,6 +7,7 @@ use App\Models\CustomerPayment;
 use App\Models\Transaction;
 use App\Models\TransactionDetail;
 use App\Models\VoucherType;
+use App\Models\FinancialYear;
 use Illuminate\Support\Facades\DB;
 
 class PaymentVoucherService
@@ -57,6 +58,20 @@ class PaymentVoucherService
                 );
             }
 
+            $financialYear = FinancialYear::query()
+                ->where('company_id', $payment->company_id)
+                ->where('is_active', true)
+                ->where('is_closed', false)
+                ->whereDate('start_date', '<=', $payment->payment_date)
+                ->whereDate('end_date', '>=', $payment->payment_date)
+                ->first();
+
+            if ($financialYear === null) {
+                throw new \RuntimeException(
+                    'Open financial year not found for payment date.'
+                );
+            }
+
             /*
              * Payment method অনুযায়ী configured
              * Cash/Bank account resolve করা।
@@ -69,6 +84,9 @@ class PaymentVoucherService
                     . $payment->payment_method
                 );
             }
+
+
+
 
             /*
              * Accounts Receivable account resolve করা।
@@ -86,11 +104,10 @@ class PaymentVoucherService
             /*
              * Voucher type resolve করা।
              */
-            $voucherTypeId = $this->getJournalVoucherTypeId(
+            $voucherTypeId = $this->getReceiptVoucherTypeId(
                 $payment->company_id
             );
-
-            /*
+                        /*
              * Customer name safely resolve করা।
              */
             $customerName =
@@ -103,6 +120,7 @@ class PaymentVoucherService
              */
             $voucher = Transaction::create([
                 'company_id' => $payment->company_id,
+                'financial_year_id' => $financialYear->id,
                 'voucher_type_id' => $voucherTypeId,
                 'voucher_number' => $this->generateVoucherNumber(
                     $payment->company_id
@@ -213,42 +231,26 @@ class PaymentVoucherService
     }
 
     /**
-     * Journal Voucher Type ID resolve করা।
-     */
-    private function getJournalVoucherTypeId(
-        int $companyId
-    ): int {
-        $query = VoucherType::query()
-            ->where(function ($query) {
-                $query
-                    ->where('name', 'Journal Voucher')
-                    ->orWhere('name', 'Journal');
-            });
-
-        /*
-         * যদি VoucherType company-specific হয়,
-         * তাহলে company isolation বজায় থাকবে।
+         * Receipt Voucher Type ID resolve করা।
          */
-        if (
-            in_array(
-                'company_id',
-                (new VoucherType())->getFillable(),
-                true
-            )
-        ) {
-            $query->where('company_id', $companyId);
+        private function getReceiptVoucherTypeId(
+            int $companyId
+            ): int {
+            $voucherType = VoucherType::query()
+                ->where('company_id', $companyId)
+                ->where('nature', VoucherType::NATURE_RECEIPT)
+                ->where('is_active', true)
+                ->where('status', 1)
+                ->first();
+
+            if ($voucherType === null) {
+                throw new \RuntimeException(
+                    'Receipt voucher type is not configured.'
+                );
+            }
+
+            return $voucherType->id;
         }
-
-        $voucherType = $query->first();
-
-        if ($voucherType === null) {
-            throw new \RuntimeException(
-                'Journal voucher type is not configured.'
-            );
-        }
-
-        return $voucherType->id;
-    }
 
     /**
      * Receipt Voucher number generate করা।

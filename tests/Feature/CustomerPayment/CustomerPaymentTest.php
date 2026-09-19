@@ -4,14 +4,16 @@ declare(strict_types=1);
 
 namespace Tests\Feature\CustomerPayment;
 
+use App\Models\Account;
 use App\Models\Company;
 use App\Models\Customer;
-use App\Models\Invoice;
+use App\Models\FinancialYear;
+use App\Models\Transaction;
+use App\Models\VoucherType;
 use App\Models\User;
 use App\Services\CustomerPaymentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
-use RuntimeException;
 use Tests\TestCase;
 
 class CustomerPaymentTest extends TestCase
@@ -24,7 +26,13 @@ class CustomerPaymentTest extends TestCase
 
     private Customer $customer;
 
-    private User $verifier;
+    private FinancialYear $financialYear;
+
+    private VoucherType $receiptVoucherType;
+
+    private Account $bankAccount;
+
+    private Account $receivableAccount;
 
     protected function setUp(): void
     {
@@ -32,12 +40,17 @@ class CustomerPaymentTest extends TestCase
 
         Mail::fake();
 
+        User::factory()->create([
+        'id' => 1,
+        ]);
+
         $this->service = app(CustomerPaymentService::class);
 
         $this->company = Company::factory()->create();
 
         $this->customer = Customer::query()->create([
             'company_id' => $this->company->id,
+            'customer_code' => 'SA-TEST-001',
             'name' => 'Test Customer',
             'phone' => '01700000000',
             'email' => 'customer@example.com',
@@ -48,344 +61,69 @@ class CustomerPaymentTest extends TestCase
             'is_active' => true,
         ]);
 
-        $this->verifier = User::factory()->create();
-    }
+        $this->financialYear = FinancialYear::query()->create([
+            'company_id' => $this->company->id,
+            'year_name' => '2026-2027',
+            'start_date' => '2026-07-01',
+            'end_date' => '2027-06-30',
+            'is_active' => true,
+            'is_closed' => false,
+        ]);
 
-    private function createInvoice(
-        ?Company $company = null,
-        ?Customer $customer = null,
-        string $invoiceNumber = 'INV-2026-000001',
-        string $totalAmount = '100.0000',
-        string $paidAmount = '0.0000',
-    ): Invoice {
-        $company ??= $this->company;
-        $customer ??= $this->customer;
+        $this->receiptVoucherType = VoucherType::query()->create([
+            'company_id' => $this->company->id,
+            'code' => 'RV',
+            'name' => 'Receipt Voucher',
+            'nature' => VoucherType::NATURE_RECEIPT,
+            'prefix' => 'RV',
+            'last_number' => 0,
+            'is_active' => true,
+            'status' => 1,
+        ]);
 
-        return Invoice::query()->create([
-            'company_id' => $company->id,
-            'customer_id' => $customer->id,
-            'invoice_number' => $invoiceNumber,
-            'invoice_date' => now()->toDateString(),
-            'due_date' => now()->addDays(7)->toDateString(),
-            'status' => 'unpaid',
-            'total_amount' => $totalAmount,
-            'paid_amount' => $paidAmount,
-            'paid_at' => null,
+        $this->bankAccount = Account::query()->create([
+            'company_id' => $this->company->id,
+            'account_code' => '1101',
+            'account_name' => 'Test Bank Account',
+            'account_type' => Account::TYPE_ASSET,
+            'balance_type' => Account::BALANCE_DEBIT,
+            'nature' => Account::NATURE_BANK,
+            'level' => 1,
+            'is_system' => false,
+            'is_active' => true,
+            'opening_balance' => 0,
+        ]);
+
+        $this->receivableAccount = Account::query()->create([
+            'company_id' => $this->company->id,
+            'account_code' => '1003',
+            'account_name' => 'Accounts Receivable',
+            'account_type' => Account::TYPE_ASSET,
+            'balance_type' => Account::BALANCE_DEBIT,
+            'nature' => Account::NATURE_CUSTOMER,
+            'level' => 1,
+            'is_system' => true,
+            'is_active' => true,
+            'opening_balance' => 0,
         ]);
     }
 
-    public function test_it_creates_pending_payment_for_correct_company_invoice(): void
+    public function test_it_creates_pending_payment_using_customer_code(): void
     {
-        $invoice = $this->createInvoice();
-
         $payment = $this->service->createPayment(
             companyId: $this->company->id,
             customerId: $this->customer->id,
-            referenceId: $invoice->invoice_number,
+            referenceId: $this->customer->customer_code,
             amount: 40.00,
             paymentMethod: 'bank_transfer',
             transactionReference: 'TXN-001',
         );
 
-        $this->assertDatabaseHas('customer_payments', [
-            'id' => $payment->id,
-            'company_id' => $this->company->id,
-            'customer_id' => $this->customer->id,
-            'reference_id' => $invoice->invoice_number,
-            'invoice_id' => $invoice->id,
-            'amount' => '40.0000',
-            'payment_method' => 'bank_transfer',
-            'transaction_reference' => 'TXN-001',
-            'status' => 'pending',
-        ]);
-
-        $this->assertSame(
-            $invoice->id,
-            $payment->invoice_id
-        );
-
-        $this->assertSame(
-            'pending',
-            $payment->status
-        );
-    }
-
-    public function test_it_verifies_payment_and_updates_invoice_paid_amount(): void
-    {
-        $invoice = $this->createInvoice(
-            totalAmount: '100.0000',
-            paidAmount: '20.0000',
-        );
-
-        $payment = $this->service->createPayment(
-            companyId: $this->company->id,
-            customerId: $this->customer->id,
-            referenceId: $invoice->invoice_number,
-            amount: 30.00,
-            paymentMethod: 'bank_transfer',
-            transactionReference: 'TXN-002',
-        );
-
-        $verifiedPayment = $this->service->verifyPayment(
-            $payment,
-            $this->verifier->id,
-        );
-
-        $invoice->refresh();
-        $verifiedPayment->refresh();
-
-        $this->assertSame(
-            'verified',
-            $verifiedPayment->status
-        );
-
-        $this->assertSame(
-            $this->verifier->id,
-            $verifiedPayment->verified_by
-        );
-
-        $this->assertNotNull(
-            $verifiedPayment->verified_at
-        );
-
-        $this->assertSame(
-            '50.00',
-            number_format((float) $invoice->paid_amount, 2, '.', '')
-        );
-
-        $this->assertSame(
-            'partial',
-            $invoice->status
-        );
-
-        $this->assertNull(
-            $verifiedPayment->voucher_id
-        );
-    }
-
-    public function test_it_marks_invoice_paid_when_payment_covers_remaining_amount(): void
-    {
-        $invoice = $this->createInvoice(
-            totalAmount: '100.0000',
-            paidAmount: '40.0000',
-        );
-
-        $payment = $this->service->createPayment(
-            companyId: $this->company->id,
-            customerId: $this->customer->id,
-            referenceId: $invoice->invoice_number,
-            amount: 60.00,
-            paymentMethod: 'bank_transfer',
-            transactionReference: 'TXN-003',
-        );
-
-        $verifiedPayment = $this->service->verifyPayment(
-            $payment,
-            $this->verifier->id,
-        );
-
-        $invoice->refresh();
-        $verifiedPayment->refresh();
-
-        $this->assertSame(
-            'verified',
-            $verifiedPayment->status
-        );
-
-        $this->assertSame(
-            '100.00',
-            number_format((float) $invoice->paid_amount, 2, '.', '')
-        );
-
-        $this->assertSame(
-            'paid',
-            $invoice->status
-        );
-
-        $this->assertNotNull(
-            $invoice->paid_at
-        );
-    }
-
-    public function test_it_rejects_overpayment(): void
-    {
-        $invoice = $this->createInvoice(
-            totalAmount: '100.0000',
-            paidAmount: '70.0000',
-        );
-
-        $payment = $this->service->createPayment(
-            companyId: $this->company->id,
-            customerId: $this->customer->id,
-            referenceId: $invoice->invoice_number,
-            amount: 40.00,
-            paymentMethod: 'bank_transfer',
-            transactionReference: 'TXN-004',
-        );
-
-        $this->expectException(RuntimeException::class);
-
-        $this->expectExceptionMessage(
-            'Payment amount exceeds the invoice outstanding amount.'
-        );
-
-        $this->service->verifyPayment(
-            $payment,
-            $this->verifier->id,
-        );
-
-        $invoice->refresh();
-
-        $this->assertSame(
-            '70.00',
-            number_format((float) $invoice->paid_amount, 2, '.', '')
-        );
-    }
-
-    public function test_it_rejects_customer_mismatch(): void
-    {
-        $invoice = $this->createInvoice();
-
-        $otherCustomer = Customer::query()->create([
-            'company_id' => $this->company->id,
-            'name' => 'Other Customer',
-            'phone' => '01800000000',
-            'email' => 'other@example.com',
-            'customer_type' => 'Individual',
-            'credit_limit' => 0,
-            'opening_balance' => 0,
-            'balance_type' => 'Receivable',
-            'is_active' => true,
-        ]);
-
-        $payment = $this->service->createPayment(
-            companyId: $this->company->id,
-            customerId: $otherCustomer->id,
-            referenceId: $invoice->invoice_number,
-            amount: 20.00,
-            paymentMethod: 'bank_transfer',
-            transactionReference: 'TXN-005',
-        );
-
-        $this->expectException(RuntimeException::class);
-
-        $this->expectExceptionMessage(
-            'Payment customer does not match the invoice customer.'
-        );
-
-        $this->service->verifyPayment(
-            $payment,
-            $this->verifier->id,
-        );
-    }
-
-    public function test_it_is_idempotent_when_verifying_an_already_verified_payment(): void
-    {
-        $invoice = $this->createInvoice(
-            totalAmount: '100.0000',
-            paidAmount: '0.0000',
-        );
-
-        $payment = $this->service->createPayment(
-            companyId: $this->company->id,
-            customerId: $this->customer->id,
-            referenceId: $invoice->invoice_number,
-            amount: 25.00,
-            paymentMethod: 'bank_transfer',
-            transactionReference: 'TXN-006',
-        );
-
-        $firstVerification = $this->service->verifyPayment(
-            $payment,
-            $this->verifier->id,
-        );
-
-        $invoice->refresh();
-
-        $paidAmountAfterFirstVerification = $invoice->paid_amount;
-        $verifiedAtAfterFirstVerification = $firstVerification->verified_at;
-
-        $secondVerification = $this->service->verifyPayment(
-            $firstVerification,
-            $this->verifier->id,
-        );
-
-        $invoice->refresh();
-        $secondVerification->refresh();
-
-        $this->assertSame(
-            '25.00',
-            number_format(
-                (float) $paidAmountAfterFirstVerification,
-                2,
-                '.',
-                ''
-            )
-        );
-
-        $this->assertSame(
-            '25.00',
-            number_format(
-                (float) $invoice->paid_amount,
-                2,
-                '.',
-                ''
-            )
-        );
-
-        $this->assertSame(
-            'verified',
-            $secondVerification->status
-        );
-
-        $this->assertSame(
-            $firstVerification->id,
-            $secondVerification->id
-        );
-
-        $this->assertEquals(
-            $verifiedAtAfterFirstVerification,
-            $secondVerification->verified_at
-        );
-    }
-
-    public function test_it_does_not_resolve_invoice_from_another_company(): void
-    {
-        $companyB = Company::factory()->create();
-
-        $customerB = Customer::query()->create([
-            'company_id' => $companyB->id,
-            'name' => 'Company B Customer',
-            'phone' => '01900000000',
-            'email' => 'companyb@example.com',
-            'customer_type' => 'Individual',
-            'credit_limit' => 0,
-            'opening_balance' => 0,
-            'balance_type' => 'Receivable',
-            'is_active' => true,
-        ]);
-
-        $invoiceB = $this->createInvoice(
-            company: $companyB,
-            customer: $customerB,
-            invoiceNumber: 'INV-2026-000002',
-            totalAmount: '200.0000',
-            paidAmount: '0.0000',
-        );
-
-        $payment = $this->service->createPayment(
-            companyId: $this->company->id,
-            customerId: $this->customer->id,
-            referenceId: $invoiceB->invoice_number,
-            amount: 50.00,
-            paymentMethod: 'bank_transfer',
-            transactionReference: 'TXN-007',
-        );
-
         $payment->refresh();
 
-        $this->assertNull(
-            $payment->invoice_id
+        $this->assertSame(
+            $this->customer->customer_code,
+            $payment->reference_id
         );
 
         $this->assertSame(
@@ -398,9 +136,220 @@ class CustomerPaymentTest extends TestCase
             $payment->customer_id
         );
 
-        $this->assertDatabaseMissing('customer_payments', [
+        $this->assertSame(
+            'pending',
+            $payment->status
+        );
+
+        $this->assertNull($payment->voucher_id);
+
+        $this->assertDatabaseHas('customer_payments', [
             'id' => $payment->id,
-            'invoice_id' => $invoiceB->id,
+            'company_id' => $this->company->id,
+            'customer_id' => $this->customer->id,
+            'reference_id' => $this->customer->customer_code,
+            'amount' => '40.0000',
+            'payment_method' => 'bank_transfer',
+            'transaction_reference' => 'TXN-001',
+            'status' => 'pending',
         ]);
+    }
+
+    public function test_it_marks_payment_received_and_creates_receipt_voucher(): void
+    {
+        $payment = $this->service->createPayment(
+            companyId: $this->company->id,
+            customerId: $this->customer->id,
+            referenceId: $this->customer->customer_code,
+            amount: 40.00,
+            paymentMethod: 'bank_transfer',
+            transactionReference: 'TXN-002',
+        );
+
+        $receivedPayment = $this->service->markAsReceived($payment);
+
+        $receivedPayment->refresh();
+
+        $this->assertSame(
+            'received',
+            $receivedPayment->status
+        );
+
+        $this->assertNotNull(
+            $receivedPayment->voucher_id
+        );
+
+        $voucher = Transaction::query()
+            ->with('details')
+            ->findOrFail($receivedPayment->voucher_id);
+
+        $this->assertSame(
+            $this->company->id,
+            $voucher->company_id
+        );
+
+        $this->assertSame(
+            $this->financialYear->id,
+            $voucher->financial_year_id
+        );
+
+        $this->assertSame(
+            $this->receiptVoucherType->id,
+            $voucher->voucher_type_id
+        );
+
+        $this->assertSame(
+            'CustomerPayment',
+            $voucher->reference_type
+        );
+
+        $this->assertSame(
+            $payment->id,
+            $voucher->reference_id
+        );
+
+        $this->assertTrue(
+            $voucher->is_balanced
+        );
+
+        $this->assertSame(
+            Transaction::STATUS_APPROVED,
+            $voucher->status
+        );
+
+        $this->assertCount(
+            2,
+            $voucher->details
+        );
+
+        $this->assertSame(
+            '40.0000',
+            number_format(
+                (float) $voucher->details->sum('debit_amount'),
+                4,
+                '.',
+                ''
+            )
+        );
+
+        $this->assertSame(
+            '40.0000',
+            number_format(
+                (float) $voucher->details->sum('credit_amount'),
+                4,
+                '.',
+                ''
+            )
+        );
+
+        $this->assertDatabaseHas('customer_payments', [
+            'id' => $payment->id,
+            'voucher_id' => $voucher->id,
+            'status' => 'received',
+        ]);
+    }
+
+    public function test_it_does_not_create_duplicate_receipt_voucher(): void
+    {
+        $payment = $this->service->createPayment(
+            companyId: $this->company->id,
+            customerId: $this->customer->id,
+            referenceId: $this->customer->customer_code,
+            amount: 25.00,
+            paymentMethod: 'bank_transfer',
+            transactionReference: 'TXN-003',
+        );
+
+        $firstReceivedPayment = $this->service->markAsReceived($payment);
+
+        $firstReceivedPayment->refresh();
+
+        $firstVoucherId = $firstReceivedPayment->voucher_id;
+
+        $this->assertNotNull($firstVoucherId);
+
+        $voucherCountAfterFirstReceive = Transaction::query()
+            ->where('company_id', $this->company->id)
+            ->where('reference_type', 'CustomerPayment')
+            ->where('reference_id', $payment->id)
+            ->count();
+
+        $secondReceivedPayment = $this->service->markAsReceived(
+            $firstReceivedPayment
+        );
+
+        $secondReceivedPayment->refresh();
+
+        $voucherCountAfterSecondReceive = Transaction::query()
+            ->where('company_id', $this->company->id)
+            ->where('reference_type', 'CustomerPayment')
+            ->where('reference_id', $payment->id)
+            ->count();
+
+        $this->assertSame(
+            $firstVoucherId,
+            $secondReceivedPayment->voucher_id
+        );
+
+        $this->assertSame(
+            1,
+            $voucherCountAfterFirstReceive
+        );
+
+        $this->assertSame(
+            $voucherCountAfterFirstReceive,
+            $voucherCountAfterSecondReceive
+        );
+    }
+
+    public function test_it_rejects_invalid_customer_code_for_selected_company(): void
+    {
+        $this->expectException(\RuntimeException::class);
+
+        $this->expectExceptionMessage(
+            'Invalid customer code for the selected company.'
+        );
+
+        $this->service->createPayment(
+            companyId: $this->company->id,
+            customerId: $this->customer->id,
+            referenceId: 'INVALID-CUSTOMER-CODE',
+            amount: 20.00,
+            paymentMethod: 'bank_transfer',
+            transactionReference: 'TXN-004',
+        );
+    }
+
+    public function test_it_does_not_accept_customer_from_another_company(): void
+    {
+        $companyB = Company::factory()->create();
+
+        $customerB = Customer::query()->create([
+            'company_id' => $companyB->id,
+            'customer_code' => 'CB-TEST-001',
+            'name' => 'Company B Customer',
+            'phone' => '01900000000',
+            'email' => 'companyb@example.com',
+            'customer_type' => 'Individual',
+            'credit_limit' => 0,
+            'opening_balance' => 0,
+            'balance_type' => 'Receivable',
+            'is_active' => true,
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+
+        $this->expectExceptionMessage(
+            'Invalid customer code for the selected company.'
+        );
+
+        $this->service->createPayment(
+            companyId: $this->company->id,
+            customerId: $customerB->id,
+            referenceId: $customerB->customer_code,
+            amount: 20.00,
+            paymentMethod: 'bank_transfer',
+            transactionReference: 'TXN-005',
+        );
     }
 }
