@@ -11,6 +11,8 @@ use App\Services\PlanLimitService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use App\Models\SalesOrder;
+use App\Models\SalesOrderItem;
 
 class InventoryController extends Controller
 {
@@ -102,9 +104,25 @@ class InventoryController extends Controller
 
     public function destroyProduct(Product $product)
     {
+        $hasStockDeductedSalesOrder = SalesOrderItem::query()
+            ->where('product_id', $product->id)
+            ->whereHas('salesOrder', function ($query) use ($product): void {
+                $query->where('company_id', $product->company_id)
+                    ->where('is_stock_deducted', true);
+            })
+            ->exists();
+
+        if ($hasStockDeductedSalesOrder) {
+            return back()->with(
+                'error',
+                'This product cannot be deleted because it is used by a confirmed Sales Order with deducted stock.'
+            );
+        }
+
         $product->delete();
+
         return redirect()->route('inventory.products')
-                         ->with('success', 'Product deleted!');
+            ->with('success', 'Product deleted!');
     }
 
     // =================== WAREHOUSES ===================
@@ -129,7 +147,21 @@ class InventoryController extends Controller
 
     public function destroyWarehouse(Warehouse $warehouse)
     {
+        $hasStockDeductedSalesOrder = SalesOrder::query()
+            ->where('company_id', $warehouse->company_id)
+            ->where('warehouse_id', $warehouse->id)
+            ->where('is_stock_deducted', true)
+            ->exists();
+
+        if ($hasStockDeductedSalesOrder) {
+            return back()->with(
+                'error',
+                'This warehouse cannot be deleted because it is used by a confirmed Sales Order with deducted stock.'
+            );
+        }
+
         $warehouse->delete();
+
         return back()->with('success', 'Warehouse deleted!');
     }
 
@@ -208,76 +240,72 @@ class InventoryController extends Controller
     }
 
     public function storeStockOut(Request $request)
-    {
-        $company_id = session('company_id');
+        {
+            $company_id = session('company_id');
 
-        // ✅ Fix: warehouse_id/product_id এখন company-scoped — অন্য company-র
-        // warehouse থেকে stock বের করা যাবে না।
-        $request->validate([
-            'warehouse_id' => [
-                'required',
-                Rule::exists('warehouses', 'id')->where(fn ($q) => $q->where('company_id', $company_id)),
-            ],
-            'movement_date' => 'required|date',
-            'items'         => 'required|array|min:1',
-            'items.*.product_id' => [
-                'required',
-                Rule::exists('products', 'id')->where(fn ($q) => $q->where('company_id', $company_id)),
-            ],
-            'items.*.quantity'   => 'required|numeric|min:0.01',
-        ]);
+            $request->validate([
+                'warehouse_id' => [
+                    'required',
+                    Rule::exists('warehouses', 'id')
+                        ->where(fn ($q) => $q->where('company_id', $company_id)),
+                ],
+                'movement_date' => 'required|date',
+                'items' => 'required|array|min:1',
+                'items.*.product_id' => [
+                    'required',
+                    Rule::exists('products', 'id')
+                        ->where(fn ($q) => $q->where('company_id', $company_id)),
+                ],
+                'items.*.quantity' => 'required|numeric|min:0.01',
+            ]);
 
-        try {
-            DB::transaction(function () use ($request, $company_id) {
-                foreach ($request->items as $item) {
-                    // ✅ Fix: lockForUpdate() — আগে check-then-decrement এর মাঝে
-                    // race condition ছিল, দুইটা concurrent request একসাথে
-                    // stock available দেখে উভয়েই decrement করলে negative stock
-                    // হয়ে যেতে পারত।
-                    $stock = ProductStock::where('product_id', $item['product_id'])
-                                ->where('warehouse_id', $request->warehouse_id)
-                                ->lockForUpdate()
-                                ->value('quantity') ?? 0;
+            try {
+                DB::transaction(function () use ($request, $company_id) {
+                    foreach ($request->items as $item) {
+                        $product = Product::where('company_id', $company_id)
+                            ->where('id', $item['product_id'])
+                            ->firstOrFail();
 
-                    if ($stock < $item['quantity']) {
-                        $product = Product::find($item['product_id']);
-                        throw new \RuntimeException("Insufficient stock for {$product->name}. Available: {$stock}");
+                        $unit_cost = (float) $product->purchase_price;
+                        $total_cost = (float) $item['quantity'] * $unit_cost;
+
+                        /*
+                        * adjustStock() performs the tenant-scoped row lock
+                        * and authoritative stock availability check.
+                        */
+                        StockMovement::adjustStock(
+                            $item['product_id'],
+                            $request->warehouse_id,
+                            $item['quantity'],
+                            'out'
+                        );
+
+                        StockMovement::create([
+                            'company_id' => $company_id,
+                            'product_id' => $item['product_id'],
+                            'warehouse_id' => $request->warehouse_id,
+                            'type' => 'out',
+                            'quantity' => $item['quantity'],
+                            'unit_cost' => $unit_cost,
+                            'total_cost' => $total_cost,
+                            'reference' => $request->reference,
+                            'reference_type' => $request->reference_type ?? 'manual',
+                            'notes' => $request->notes,
+                            'movement_date' => $request->movement_date,
+                            'created_by' => auth()->id(),
+                        ]);
                     }
+                });
+            } catch (\RuntimeException $e) {
+                return back()
+                    ->withErrors(['items' => $e->getMessage()])
+                    ->withInput();
+            }
 
-                    $product   = Product::find($item['product_id']);
-                    $unit_cost = $product->purchase_price;
-                    $total_cost = $item['quantity'] * $unit_cost;
-
-                    StockMovement::create([
-                        'company_id'    => $company_id,
-                        'product_id'    => $item['product_id'],
-                        'warehouse_id'  => $request->warehouse_id,
-                        'type'          => 'out',
-                        'quantity'      => $item['quantity'],
-                        'unit_cost'     => $unit_cost,
-                        'total_cost'    => $total_cost,
-                        'reference'     => $request->reference,
-                        'reference_type'=> $request->reference_type ?? 'manual',
-                        'notes'         => $request->notes,
-                        'movement_date' => $request->movement_date,
-                        'created_by'    => auth()->id(),
-                    ]);
-
-                    StockMovement::adjustStock(
-                        $item['product_id'],
-                        $request->warehouse_id,
-                        $item['quantity'],
-                        'out'
-                    );
-                }
-            });
-        } catch (\RuntimeException $e) {
-            return back()->withErrors(['items' => $e->getMessage()])->withInput();
+            return redirect()
+                ->route('inventory.movements')
+                ->with('success', 'Stock Out recorded!');
         }
-
-        return redirect()->route('inventory.movements')
-                         ->with('success', 'Stock Out recorded!');
-    }
 
     // =================== MOVEMENTS ===================
 

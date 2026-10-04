@@ -116,7 +116,7 @@ class CustomerPaymentController extends Controller
         );
 
         try {
-            $response = $sslService->initiatePayment(
+            $response = $sslService->initiateCustomerPayment(
                 customerId: $payment->customer_id,
                 amount: $payment->amount,
                 description: "Payment - {$payment->reference_id}",
@@ -293,6 +293,21 @@ class CustomerPaymentController extends Controller
                 : 'Payment confirmation is pending.',
         ]);
     }
+
+
+    public function sslcommerzFail(Request $request)
+{
+    return view('customer.payment.error', [
+        'message' => 'SSLCommerz payment failed.',
+    ]);
+}
+
+public function sslcommerzCancel(Request $request)
+{
+    return view('customer.payment.error', [
+        'message' => 'SSLCommerz payment was cancelled.',
+    ]);
+}
 
     /**
      * SSLCommerz IPN webhook

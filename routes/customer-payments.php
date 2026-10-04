@@ -29,6 +29,13 @@ Route::post('/webhooks/payment/sslcommerz/ipn', [CustomerPaymentController::clas
 
 Route::get('/customer/payment/sslcommerz/success', [CustomerPaymentController::class, 'sslcommerzSuccess'])
     ->name('customer-payment.sslcommerz.success');
+    
+Route::get('/customer/payment/sslcommerz/fail', [CustomerPaymentController::class, 'sslcommerzFail'])
+    ->name('customer-payment.sslcommerz.fail');
+
+Route::get('/customer/payment/sslcommerz/cancel', [CustomerPaymentController::class, 'sslcommerzCancel'])
+    ->name('customer-payment.sslcommerz.cancel');
+
 
     // ============================================================
 // Admin Routes (with admin middleware)

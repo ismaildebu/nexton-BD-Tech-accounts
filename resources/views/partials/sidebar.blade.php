@@ -235,73 +235,85 @@
 
 
         {{-- ════════════════════════════════════════════════
-             INVENTORY
-        ════════════════════════════════════════════════ --}}
-        @if($activeCompany?->hasModule('inventory'))
-        @canany(['inventory.view','stock-transfers.view'])
-        <div x-data="{
-            open: {{ request()->routeIs('inventory.*','stock-transfers.*') ? 'true' : 'false' }}
-        }">
-            <button type="button" @click="open = !open"
-                    class="w-full flex items-center gap-3 px-3 py-2 mt-1 rounded-xl
-                           text-sm font-semibold transition-all duration-150
-                           {{ $groupActive(['inventory.*','stock-transfers.*']) }}">
-                <i class="bi bi-boxes text-sm w-4 text-center shrink-0"></i>
-                <span class="flex-1 text-left">Inventory</span>
-                <i class="bi text-[10px] text-slate-500 transition-transform duration-200"
-                   :class="open ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
-            </button>
+     INVENTORY
+════════════════════════════════════════════════ --}}
 
-            <div x-show="open" x-transition:enter="transition ease-out duration-150"
-                 x-transition:enter-start="opacity-0 -translate-y-1"
-                 x-transition:enter-end="opacity-100 translate-y-0"
-                 class="mt-0.5 ml-3.5 pl-3 border-l border-white/8 space-y-0.5">
+@if($activeCompany?->hasModule('inventory'))
+@canany(['products.view','stock.view','stock.move','warehouses.view','stock.transfer'])
+<div x-data="{
+    open: {{ request()->routeIs('inventory.*','stock-transfers.*') ? 'true' : 'false' }}
+}">
+    <button type="button" @click="open = !open"
+            class="w-full flex items-center gap-3 px-3 py-2 mt-1 rounded-xl
+                   text-sm font-semibold transition-all duration-150
+                   {{ $groupActive(['inventory.*','stock-transfers.*']) }}">
+        <i class="bi bi-boxes text-sm w-4 text-center shrink-0"></i>
+        <span class="flex-1 text-left">Inventory</span>
+        <i class="bi text-[10px] text-slate-500 transition-transform duration-200"
+           :class="open ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+    </button>
 
-                @can('inventory.view')
-                <a href="{{ route('inventory.products') }}"
-                   class="{{ $navLink('inventory.products') }}">
-                    <i class="bi bi-archive text-xs w-4 text-center shrink-0"></i>
-                    <span>Products</span>
-                </a>
-                <a href="{{ route('inventory.stock-in') }}"
-                   class="{{ $navLink('inventory.stock-in') }}">
-                    <i class="bi bi-arrow-down-circle text-xs w-4 text-center shrink-0"></i>
-                    <span>Stock In</span>
-                </a>
-                <a href="{{ route('inventory.stock-out') }}"
-                   class="{{ $navLink('inventory.stock-out') }}">
-                    <i class="bi bi-arrow-up-circle text-xs w-4 text-center shrink-0"></i>
-                    <span>Stock Out</span>
-                </a>
-                <a href="{{ route('inventory.movements') }}"
-                   class="{{ $navLink('inventory.movements') }}">
-                    <i class="bi bi-arrow-left-right text-xs w-4 text-center shrink-0"></i>
-                    <span>Movements</span>
-                </a>
-                <a href="{{ route('inventory.stock-report') }}"
-                   class="{{ $navLink('inventory.stock-report') }}">
-                    <i class="bi bi-graph-up text-xs w-4 text-center shrink-0"></i>
-                    <span>Stock Report</span>
-                </a>
-                <a href="{{ route('inventory.warehouses') }}"
-                   class="{{ $navLink('inventory.warehouses') }}">
-                    <i class="bi bi-shop-window text-xs w-4 text-center shrink-0"></i>
-                    <span>Warehouses</span>
-                </a>
-                @endcan
+    <div x-show="open" x-transition:enter="transition ease-out duration-150"
+         x-transition:enter-start="opacity-0 -translate-y-1"
+         x-transition:enter-end="opacity-100 translate-y-0"
+         class="mt-0.5 ml-3.5 pl-3 border-l border-white/8 space-y-0.5">
 
-                @can('stock-transfers.view')
-                <a href="{{ route('stock-transfers.index') }}"
-                   class="{{ $navLink('stock-transfers.index', 'stock-transfers.*') }}">
-                    <i class="bi bi-shuffle text-xs w-4 text-center shrink-0"></i>
-                    <span>Stock Transfers</span>
-                </a>
-                @endcan
+        @can('products.view')
+        <a href="{{ route('inventory.products') }}"
+           class="{{ $navLink('inventory.products') }}">
+            <i class="bi bi-archive text-xs w-4 text-center shrink-0"></i>
+            <span>Products</span>
+        </a>
+        @endcan
 
-            </div>
-        </div>
-        @endcanany
-        @endif
+        @can('stock.move')
+        <a href="{{ route('inventory.stock-in') }}"
+           class="{{ $navLink('inventory.stock-in') }}">
+            <i class="bi bi-arrow-down-circle text-xs w-4 text-center shrink-0"></i>
+            <span>Stock In</span>
+        </a>
+
+        <a href="{{ route('inventory.stock-out') }}"
+           class="{{ $navLink('inventory.stock-out') }}">
+            <i class="bi bi-arrow-up-circle text-xs w-4 text-center shrink-0"></i>
+            <span>Stock Out</span>
+        </a>
+        @endcan
+
+        @can('stock.view')
+        <a href="{{ route('inventory.movements') }}"
+           class="{{ $navLink('inventory.movements') }}">
+            <i class="bi bi-arrow-left-right text-xs w-4 text-center shrink-0"></i>
+            <span>Movements</span>
+        </a>
+
+        <a href="{{ route('inventory.stock-report') }}"
+           class="{{ $navLink('inventory.stock-report') }}">
+            <i class="bi bi-graph-up text-xs w-4 text-center shrink-0"></i>
+            <span>Stock Report</span>
+        </a>
+        @endcan
+
+        @can('warehouses.view')
+        <a href="{{ route('inventory.warehouses') }}"
+           class="{{ $navLink('inventory.warehouses') }}">
+            <i class="bi bi-shop-window text-xs w-4 text-center shrink-0"></i>
+            <span>Warehouses</span>
+        </a>
+        @endcan
+
+        @can('stock.transfer')
+        <a href="{{ route('stock-transfers.index') }}"
+           class="{{ $navLink('stock-transfers.index', 'stock-transfers.*') }}">
+            <i class="bi bi-shuffle text-xs w-4 text-center shrink-0"></i>
+            <span>Stock Transfers</span>
+        </a>
+        @endcan
+
+    </div>
+</div>
+@endcanany
+@endif
 
 
         {{-- ════════════════════════════════════════════════

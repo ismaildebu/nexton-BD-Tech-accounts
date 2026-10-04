@@ -78,6 +78,7 @@ class CompanySignupController extends Controller
             $admin->markEmailAsVerified();
 
             $admin->syncRoles(['admin']);
+            app(\App\Services\CompanyAccountingDefaults::class)->ensure($company);
             $company->update(['owner_id' => $admin->id]);
 
             $this->subscriptionService->subscribeToFreePlan($admin);

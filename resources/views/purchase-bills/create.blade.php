@@ -79,6 +79,7 @@
                         <thead class="bg-slate-50">
                             <tr>
                                 <th class="text-left px-3 py-2 font-medium">Item Name *</th>
+                                <th class="text-left px-3 py-2 font-medium">Account *</th>
                                 <th class="text-left px-3 py-2 font-medium">Description</th>
                                 <th class="text-left px-3 py-2 font-medium w-20">Qty *</th>
                                 <th class="text-left px-3 py-2 font-medium w-20">Unit</th>
@@ -95,6 +96,22 @@
                                                x-model="item.item_name" required
                                                class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
                                     </td>
+
+
+                                    <td class="px-2 py-2">
+                                        <select :name="`items[${index}][account_id]`"
+                                                x-model="item.account_id"
+                                                required
+                                                class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
+                                            <option value="">-- Select Account --</option>
+                                            @foreach($accounts as $account)
+                                                <option value="{{ $account->id }}">
+                                                    {{ $account->account_code }} - {{ $account->name }}
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                    </td>
+
                                     <td class="px-2 py-2">
                                         <input type="text" :name="`items[${index}][description]`"
                                                x-model="item.description"
@@ -184,10 +201,10 @@ function billForm() {
         items: [
             @if($purchase_order)
                 @foreach($purchase_order->items as $item)
-                { item_name: '{{ $item->item_name }}', description: '{{ $item->description }}', quantity: {{ $item->quantity }}, unit: '{{ $item->unit }}', unit_price: {{ $item->unit_price }}, total: {{ $item->total }} },
+                { account_id: '{{ $item->account_id ?? '' }}', item_name: '{{ $item->item_name }}', description: '{{ $item->description }}', quantity: {{ $item->quantity }}, unit: '{{ $item->unit }}', unit_price: {{ $item->unit_price }}, total: {{ $item->total }} },
                 @endforeach
             @else
-                { item_name: '', description: '', quantity: 1, unit: '', unit_price: 0, total: 0 }
+                { account_id: '', item_name: '', description: '', quantity: 1, unit: '', unit_price: 0, total: 0 }
             @endif
         ],
         tax: 0,
@@ -196,7 +213,7 @@ function billForm() {
         grandTotal: {{ $purchase_order ? $purchase_order->total : 0 }},
 
         addItem() {
-            this.items.push({ item_name: '', description: '', quantity: 1, unit: '', unit_price: 0, total: 0 });
+            this.items.push({ account_id: '', item_name: '', description: '', quantity: 1, unit: '', unit_price: 0, total: 0 });
         },
 
         removeItem(index) {

@@ -11,7 +11,6 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -168,7 +167,7 @@ class TrialBalanceController extends Controller
         }
 
         /*
-         * If no explicit year was selected, use the session year.
+         * If no explicit year was selected, use the active financial year.
          */
         if (! $financialYear) {
             $financialYear = FinancialYear::query()
@@ -332,7 +331,6 @@ class TrialBalanceController extends Controller
                     $company,
                     $financialYear,
                     $yearStart,
-                    $periodStart,
                     $periodEnd
                 ): void {
                     $query
@@ -348,7 +346,14 @@ class TrialBalanceController extends Controller
                                 $yearStart->toDateString(),
                                 $periodEnd->toDateString(),
                             ]
-                        );
+                        )
+                        /*
+                         * Important:
+                         * The last entry must represent the latest
+                         * ledger balance as of the selected period end.
+                         */
+                        ->orderBy('entry_date')
+                        ->orderBy('id');
                 },
             ])
             ->get();
@@ -359,13 +364,14 @@ class TrialBalanceController extends Controller
         |--------------------------------------------------------------------------
         |
         | Opening:
-        |     Account opening_balance
+        |     Account opening balance + prior FY movement.
         |
         | Period:
         |     Entries between selected period start/end.
         |
         | Closing:
-        |     Opening + all entries from FY start through period end.
+        |     Taken from the last ledger entry's running_balance
+        |     up to the selected period end.
         |
         | Debit-normal:
         |     Asset / Expense
@@ -383,6 +389,9 @@ class TrialBalanceController extends Controller
             ): Account {
                 $entries = $account->ledgerEntries;
 
+                /*
+                 * Entries inside selected reporting period.
+                 */
                 $periodEntries = $entries->filter(
                     function ($entry) use (
                         $periodStart,
@@ -412,7 +421,7 @@ class TrialBalanceController extends Controller
                 );
 
                 /*
-                 * Entries before selected period.
+                 * Entries before selected reporting period.
                  */
                 $priorEntries = $entries->filter(
                     function ($entry) use (
@@ -446,7 +455,7 @@ class TrialBalanceController extends Controller
                 );
 
                 /*
-                 * Opening net balance.
+                 * Determine account's normal balance.
                  */
                 $isDebitNormal = in_array(
                     $account->account_type,
@@ -457,22 +466,55 @@ class TrialBalanceController extends Controller
                     true
                 );
 
+                /*
+                 * Calculate opening net balance.
+                 *
+                 * This remains based on the existing Trial Balance
+                 * opening calculation.
+                 */
                 if ($isDebitNormal) {
                     $openingNet = $openingBalance
                         + $priorDebit
                         - $priorCredit;
-
-                    $closingNet = $openingNet
-                        + $periodDebit
-                        - $periodCredit;
                 } else {
                     $openingNet = $openingBalance
                         + $priorCredit
                         - $priorDebit;
+                }
 
-                    $closingNet = $openingNet
-                        + $periodCredit
-                        - $periodDebit;
+                /*
+                 * --------------------------------------------------------------
+                 * IMPORTANT:
+                 * Trial Balance closing balance comes from Ledger.
+                 * --------------------------------------------------------------
+                 *
+                 * The ledger already maintains running_balance.
+                 *
+                 * Because ledgerEntries are ordered by entry_date + id,
+                 * the last entry is the account's latest ledger position
+                 * as of the selected period end.
+                 */
+                $lastLedgerEntry = $entries->last();
+
+                if (
+                    $lastLedgerEntry !== null
+                    && $lastLedgerEntry->running_balance !== null
+                ) {
+                    $closingNet = round(
+                        (float) $lastLedgerEntry->running_balance,
+                        2
+                    );
+                } else {
+                    /*
+                     * No ledger entry exists up to period end.
+                     *
+                     * In this case the opening net balance is the
+                     * closing balance.
+                     */
+                    $closingNet = round(
+                        $openingNet,
+                        2
+                    );
                 }
 
                 /*

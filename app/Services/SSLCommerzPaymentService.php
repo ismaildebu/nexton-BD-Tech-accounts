@@ -35,6 +35,71 @@ final class SSLCommerzPaymentService
     private string $validationUrl;
     private bool $sandboxMode;
 
+
+
+    public function initiateCustomerPayment(
+    int $customerId,
+    string $amount,
+    string $description,
+    string $successUrl,
+    string $failUrl,
+    string $cancelUrl,
+    string $ipnUrl,
+    array $externalData = [],
+): array {
+    $transactionId = 'CUS-' . $customerId . '-' . bin2hex(random_bytes(8));
+
+    $paymentData = [
+        'store_id' => $this->storeId,
+        'store_passwd' => $this->storePassword,
+        'total_amount' => $amount,
+        'currency' => 'BDT',
+        'tran_id' => $transactionId,
+        'success_url' => $successUrl,
+        'fail_url' => $failUrl,
+        'cancel_url' => $cancelUrl,
+        'ipn_url' => $ipnUrl,
+        'emi_option' => 0,
+
+        'cus_name' => 'Customer ' . $customerId,
+        'cus_email' => '',
+        'cus_phone' => '',
+        'cus_add1' => 'Bangladesh',
+
+        'ship_name' => 'Customer ' . $customerId,
+        'ship_email' => '',
+        'ship_phone' => '',
+        'ship_add1' => 'Bangladesh',
+
+        'product_name' => $description,
+        'product_category' => 'Payment',
+        'product_profile' => 'service',
+    ];
+
+    $response = Http::asForm()
+        ->timeout(15)
+        ->post($this->apiUrl, $paymentData)
+        ->throw()
+        ->body();
+
+    preg_match('/sessionkey=([a-zA-Z0-9]+)/', $response, $matches);
+
+    $sessionKey = $matches[1] ?? null;
+
+    if ($sessionKey === null) {
+        throw new RuntimeException('Invalid response from SSLCommerz.');
+    }
+
+    return [
+        'redirect_url' => $this->sandboxMode
+            ? "https://sandbox.sslcommerz.com/customer/pay/{$sessionKey}"
+            : "https://securepay.sslcommerz.com/customer/pay/{$sessionKey}",
+        'sessionId' => $sessionKey,
+        'transaction_id' => $transactionId,
+        'external_data' => $externalData,
+    ];
+}
+
     public function initiatePayment(
         int $subscriptionId,
         string $amount,

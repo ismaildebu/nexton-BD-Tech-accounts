@@ -153,6 +153,8 @@ class PaymentVoucherService
                     . ' (Customer Code: '
                     . $payment->reference_id
                     . ')',
+                'total_debit' => $payment->amount,
+                'total_credit' => $payment->amount,
                 'is_balanced' => false,
                 'status' => 'Draft',
                 'created_by' => auth()->id() ?? 1,

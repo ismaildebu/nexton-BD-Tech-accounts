@@ -54,8 +54,11 @@ final class VoucherService
                 'created_by'        => Auth::id(),
                 'voucher_number'    => $voucherNumber,
                 'voucher_date'      => $data['voucher_date'],
+                'reference_type'    => $data['reference_type'] ?? null,
+                'reference_id'      => $data['reference_id'] ?? null,
                 'reference_number'  => $data['reference_number'] ?? null,
                 'narration'         => $data['narration'] ?? null,
+
                 'total_debit'       => $totalDebit,
                 'total_credit'      => $totalCredit,
                 'status'            => Transaction::STATUS_DRAFT,
@@ -288,6 +291,30 @@ final class VoucherService
         });
     }
 
+    /**
+     * Create and automatically post a system-generated voucher.
+     *
+     * This is intended for atomic business events such as
+     * confirmed Sales Orders and completed Purchases.
+     *
+     * @param array<string, mixed> $data
+     */
+    public function createAutoPosted(array $data): Transaction
+    {
+        return DB::transaction(function () use ($data): Transaction {
+            $transaction = $this->createDraft($data);
+
+            $transaction->update([
+                'status'        => Transaction::STATUS_APPROVED,
+                'approved_by'   => null,
+                'approved_at'   => null,
+                'approval_note' => 'Automatically approved for system-generated accounting.',
+            ]);
+
+            return $this->postApproved($transaction);
+        });
+    }
+
     // ---------------------------------------------------------------
     // Post Approved Voucher
     // ---------------------------------------------------------------
@@ -463,6 +490,8 @@ final class VoucherService
      * The Account row is locked while checking the balance so that
      * concurrent bank withdrawals cannot bypass this validation.
      *
+     * All arithmetic uses bcmath decimal strings (no floats).
+     *
      * @throws VoucherValidationException
      */
     private function validateBankBalances(
@@ -488,16 +517,22 @@ final class VoucherService
             if (! isset($bankDeltas[$accountId])) {
                 $bankDeltas[$accountId] = [
                     'account' => $account,
-                    'debit'   => 0.0,
-                    'credit'  => 0.0,
+                    'debit'   => '0.0000',
+                    'credit'  => '0.0000',
                 ];
             }
 
-            $bankDeltas[$accountId]['debit'] +=
-                (float) ($detail->debit_amount ?? 0);
+            $bankDeltas[$accountId]['debit'] = bcadd(
+                $bankDeltas[$accountId]['debit'],
+                $this->toDecimal($detail->debit_amount),
+                4
+            );
 
-            $bankDeltas[$accountId]['credit'] +=
-                (float) ($detail->credit_amount ?? 0);
+            $bankDeltas[$accountId]['credit'] = bcadd(
+                $bankDeltas[$accountId]['credit'],
+                $this->toDecimal($detail->credit_amount),
+                4
+            );
         }
 
         foreach ($bankDeltas as $data) {
@@ -518,43 +553,64 @@ final class VoucherService
              * This includes both the original ledger entry and
              * its reversal entry when a posted voucher is cancelled.
              */
-            $currentBalance =
-                (float) ($account->opening_balance ?? 0)
-                + (float) $account->allLedgerEntries()->sum('debit_amount')
-                - (float) $account->allLedgerEntries()->sum('credit_amount');
+            $currentBalance = bcsub(
+                bcadd(
+                    $this->toDecimal($account->opening_balance),
+                    $this->toDecimal(
+                        $account->allLedgerEntries()->sum('debit_amount')
+                    ),
+                    4
+                ),
+                $this->toDecimal(
+                    $account->allLedgerEntries()->sum('credit_amount')
+                ),
+                4
+            );
 
-            $projectedBalance =
-                $currentBalance
-                + $data['debit']
-                - $data['credit'];
+            $projectedBalance = bcsub(
+                bcadd($currentBalance, $data['debit'], 4),
+                $data['credit'],
+                4
+            );
 
             /*
              * Never allow a bank account to become negative.
              */
-            if ($projectedBalance < -0.0001) {
+            if (bccomp($projectedBalance, '0', 4) < 0) {
+                $required = bcsub($data['credit'], $data['debit'], 4);
+
                 throw new VoucherValidationException(
                     sprintf(
                         'Insufficient bank balance in "%s". Available balance: %s, required withdrawal: %s.',
-                        $account->name,
-                        number_format(
-                            $currentBalance,
-                            2,
-                            '.',
-                            ''
-                        ),
-                        number_format(
-                            max(
-                                0,
-                                $data['credit'] - $data['debit']
-                            ),
-                            2,
-                            '.',
-                            ''
-                        )
+                        $account->account_name,
+                        bcadd($currentBalance, '0', 2),
+                        bccomp($required, '0', 4) > 0
+                            ? bcadd($required, '0', 2)
+                            : '0.00'
                     )
                 );
             }
         }
+    }
+
+    /**
+     * Normalize a DB/aggregate value into a plain decimal string for bcmath.
+     */
+    private function toDecimal(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return '0.0000';
+        }
+
+        $string = (string) $value;
+
+        // Plain decimal strings (what MySQL DECIMAL returns) pass through.
+        if (preg_match('/^-?\d+(\.\d+)?$/', $string) === 1) {
+            return $string;
+        }
+
+        // Fallback for float / scientific notation values.
+        return number_format((float) $value, 4, '.', '');
     }
 
     /**

@@ -7,9 +7,11 @@ namespace App\Services;
 use App\Models\Account;
 use App\Models\Customer;
 use App\Models\FinancialYear;
+use App\Models\ProductStock;
 use App\Models\SalesOrder;
+use App\Models\SalesOrderItem;
+use App\Models\StockMovement;
 use App\Models\Transaction;
-use App\Models\TransactionDetail;
 use App\Models\VoucherType;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Carbon;
@@ -21,29 +23,67 @@ use Throwable;
 /**
  * SalesOrderAccountingService
  *
- * Handles accounting transactions generated from Sales Orders.
+ * Handles:
  *
- * Accounting entry on confirmation:
+ * 1. Sales Order confirmation
+ *    - Validate warehouse/product stock
+ *    - Deduct inventory
+ *    - Create stock movement
+ *    - Create accounting transaction
+ *    - Post ledger
  *
- *     Debit  - Customer Accounts Receivable
- *     Credit - Sales Revenue
+ * 2. Sales Order cancellation
+ *    - Reverse accounting
+ *    - Restore previously deducted stock
  *
- * Accounting reversal on cancellation:
+ * Confirmation is atomic:
  *
- *     Debit/Credit are reversed by LedgerPostingService.
+ *     Stock validation
+ *          |
+ *     Stock OUT
+ *          |
+ *     Dr Accounts Receivable   (order total = subtotal + tax - discount)
+ *     Dr Sales Discount        (only when discount > 0)
+ *     Cr Sales Revenue         (subtotal)
+ *     Cr VAT Payable           (only when tax > 0)
+ *          |
+ *     Ledger posting
  *
- * The service is company-scoped and uses the existing accounting
- * architecture:
+ * Total Debit = total + discount = subtotal + tax = Total Credit.
  *
- * SalesOrder
- *     -> Transaction
- *     -> TransactionDetail
- *     -> LedgerPostingService
- *     -> LedgerEntry
+ * If any step fails, the complete transaction is rolled back.
  */
 final class SalesOrderAccountingService
 {
     private const SALES_VOUCHER_CODE = 'SV';
+
+    /**
+     * Accounts used for automatic Sales posting.
+     *
+     * Companies number their chart of accounts differently (older
+     * companies use 5001 for Sales Revenue, newer templates use 4001),
+     * so accounts are found by NAME and TYPE, never by code.
+     *
+     * These accounts must already exist for every company.
+     * They are never created automatically.
+     */
+    private const SALES_REVENUE_NAME = 'Sales Revenue';
+
+    private const SALES_REVENUE_TYPE = 'Income';
+
+    private const SALES_DISCOUNT_NAME = 'Sales Discount';
+
+    private const SALES_DISCOUNT_TYPE = 'Expense';
+
+    private const SALES_TAX_PAYABLE_NAME = 'VAT Payable';
+
+    private const SALES_TAX_PAYABLE_TYPE = 'Liability';
+
+    /**
+     * Maximum allowed difference between the stored Sales Order total
+     * and the total recalculated from its items (rounding tolerance).
+     */
+    private const TOTAL_TOLERANCE = '0.0100';
 
     private LedgerPostingService $ledgerService;
 
@@ -56,15 +96,19 @@ final class SalesOrderAccountingService
     }
 
     /**
-     * Create and post accounting transaction when a Sales Order is confirmed.
+     * Confirm a Sales Order.
      *
-     * Accounting:
+     * The operation is idempotent.
      *
-     *     Dr Accounts Receivable
-     *     Cr Sales Revenue
+     * Confirmation requires:
      *
-     * The operation is idempotent. Calling this method repeatedly for the
-     * same Sales Order must never create duplicate active ledger entries.
+     * - A valid company warehouse
+     * - Every Sales Order item to reference a company product
+     * - Sufficient stock for every product
+     * - Successful stock deduction
+     * - Configured Revenue / Discount / Tax accounts (when applicable)
+     * - Balanced accounting transaction
+     * - Successful ledger posting
      *
      * @throws Throwable
      */
@@ -75,7 +119,7 @@ final class SalesOrderAccountingService
             && $salesOrder->status !== 'Confirmed'
         ) {
             throw new RuntimeException(
-                "Cannot create accounting entry for SO #{$salesOrder->so_number}. "
+                "Cannot confirm Sales Order #{$salesOrder->so_number}. "
                 . 'Only Draft or Confirmed orders are allowed.'
             );
         }
@@ -85,6 +129,10 @@ final class SalesOrderAccountingService
         }
 
         DB::transaction(function () use ($salesOrder): void {
+            /*
+             * Lock the Sales Order so two concurrent confirmation
+             * requests cannot process it simultaneously.
+             */
             $lockedSalesOrder = SalesOrder::query()
                 ->where('company_id', $salesOrder->company_id)
                 ->lockForUpdate()
@@ -94,10 +142,32 @@ final class SalesOrderAccountingService
                 return;
             }
 
+            $userId = Auth::id();
+
+            if ($userId === null) {
+                throw new RuntimeException(
+                    'Authenticated user is required to create '
+                    . 'Sales Order accounting entries.'
+                );
+            }
+
+            /*
+             * Stock must be deducted before accounting is considered
+             * complete. Both operations are inside this transaction.
+             */
+            if (! $lockedSalesOrder->is_stock_deducted) {
+                $this->deductSalesOrderStock(
+                    $lockedSalesOrder
+                );
+            }
+
             $referenceNumber = $this->getReferenceNumber(
                 $lockedSalesOrder
             );
 
+            /*
+             * Check for an existing transaction to maintain idempotency.
+             */
             $existingTransaction = Transaction::query()
                 ->where(
                     'company_id',
@@ -127,17 +197,15 @@ final class SalesOrderAccountingService
                 return;
             }
 
-            $totalAmount = $this->calculateSalesOrderTotal(
+            /*
+             * subtotal / tax / discount / total as bcmath strings.
+             * Throws if the order is inconsistent.
+             */
+            $amounts = $this->calculateSalesOrderAmounts(
                 $lockedSalesOrder
             );
 
-            if (bccomp($totalAmount, '0.0000', 4) <= 0) {
-                throw new RuntimeException(
-                    "Cannot create accounting entry for SO "
-                    . "#{$lockedSalesOrder->so_number}. "
-                    . 'Total amount must be greater than zero.'
-                );
-            }
+            $companyId = (int) $lockedSalesOrder->company_id;
 
             $financialYearId = $this->resolveFinancialYearId(
                 $lockedSalesOrder
@@ -146,107 +214,440 @@ final class SalesOrderAccountingService
             $receivableAccount =
                 $this->getOrCreateCustomerReceivableAccount(
                     (int) $lockedSalesOrder->customer_id,
-                    (int) $lockedSalesOrder->company_id
+                    $companyId
                 );
 
             $revenueAccount = $this->getSalesRevenueAccount(
-                (int) $lockedSalesOrder->company_id
+                $companyId
             );
 
             $voucherType = $this->getSalesVoucherType(
-                (int) $lockedSalesOrder->company_id
+                $companyId
             );
 
-            $now = Carbon::now();
-            $userId = Auth::id();
+            $soNumber = $lockedSalesOrder->so_number;
 
-            if ($userId === null) {
-                throw new RuntimeException(
-                    'Authenticated user is required to create '
-                    . 'Sales Order accounting entries.'
+            /*
+             * Dr Accounts Receivable = order total
+             */
+            $details = [
+                [
+                    'account_id' => $receivableAccount->id,
+                    'description' =>
+                        "Accounts Receivable - SO #{$soNumber}",
+                    'debit_amount' => $amounts['total'],
+                    'credit_amount' => '0.0000',
+                ],
+            ];
+
+            /*
+             * Dr Sales Discount = discount (only when discount exists)
+             */
+            if (bccomp($amounts['discount'], '0', 4) > 0) {
+                $discountAccount = $this->getConfiguredAccount(
+                    $companyId,
+                    self::SALES_DISCOUNT_NAME,
+                    self::SALES_DISCOUNT_TYPE
+                );
+
+                $details[] = [
+                    'account_id' => $discountAccount->id,
+                    'description' =>
+                        "Sales Discount - SO #{$soNumber}",
+                    'debit_amount' => $amounts['discount'],
+                    'credit_amount' => '0.0000',
+                ];
+            }
+
+            /*
+             * Cr Sales Revenue = subtotal
+             */
+            $details[] = [
+                'account_id' => $revenueAccount->id,
+                'description' =>
+                    "Sales Revenue - SO #{$soNumber}",
+                'debit_amount' => '0.0000',
+                'credit_amount' => $amounts['subtotal'],
+            ];
+
+            /*
+             * Cr Sales Tax Payable = tax (only when tax exists)
+             */
+            if (bccomp($amounts['tax'], '0', 4) > 0) {
+                $taxAccount = $this->getConfiguredAccount(
+                    $companyId,
+                    self::SALES_TAX_PAYABLE_NAME,
+                    self::SALES_TAX_PAYABLE_TYPE
+                );
+
+                $details[] = [
+                    'account_id' => $taxAccount->id,
+                    'description' =>
+                        "Sales Tax Payable - SO #{$soNumber}",
+                    'debit_amount' => '0.0000',
+                    'credit_amount' => $amounts['tax'],
+                ];
+            }
+
+            /*
+             * Defensive double-entry check before handing over to
+             * VoucherService: Total Debit must equal Total Credit.
+             */
+            $debitSum = '0.0000';
+            $creditSum = '0.0000';
+
+            foreach ($details as $line) {
+                $debitSum = bcadd(
+                    $debitSum,
+                    $line['debit_amount'],
+                    4
+                );
+
+                $creditSum = bcadd(
+                    $creditSum,
+                    $line['credit_amount'],
+                    4
                 );
             }
-            
-            $transaction = Transaction::create([
-            'company_id'        => $lockedSalesOrder->company_id,
-            'financial_year_id' => $financialYearId,
-            'voucher_type_id'   => $voucherType->id,
-            'created_by'        => $userId,
 
-            'voucher_number'    =>
-                'SO-' . $lockedSalesOrder->so_number,
-            'voucher_date'      =>
-                $lockedSalesOrder->order_date ?? $now,
+            if (bccomp($debitSum, $creditSum, 4) !== 0) {
+                throw new RuntimeException(
+                    "Sales Order #{$soNumber} accounting is not balanced. "
+                    . "Debit: {$debitSum}, Credit: {$creditSum}."
+                );
+            }
 
-            'reference_type'    => 'SalesOrder',
-            'reference_id'      => $lockedSalesOrder->id,
-            'reference_number'  => $referenceNumber,
+            $this->voucherService->createAutoPosted([
+                'company_id' => $lockedSalesOrder->company_id,
+                'financial_year_id' => $financialYearId,
+                'voucher_type_id' => $voucherType->id,
+                'voucher_date' =>
+                    $lockedSalesOrder->order_date ?? Carbon::now(),
 
-            'narration'         =>
-                "Sales Order #{$lockedSalesOrder->so_number} confirmed",
+                'reference_type' => 'SalesOrder',
+                'reference_id' => $lockedSalesOrder->id,
+                'reference_number' => $referenceNumber,
 
-            'total_debit'       => $totalAmount,
-            'total_credit'      => $totalAmount,
+                'narration' =>
+                    "Sales Order #{$soNumber} confirmed",
 
-            'status'            => Transaction::STATUS_APPROVED,
-
-            'approved_by'       => $userId,
-            'approved_at'       => $now,
-            'approval_note'     =>
-                'Automatically approved for Sales Order accounting.',
-        ]);
-            
-
-            TransactionDetail::insert([
-                [
-                    'transaction_id' => $transaction->id,
-                    'account_id'     => $receivableAccount->id,
-                    'sort_order'     => 1,
-                    'description'    =>
-                        "Accounts Receivable - SO "
-                        . "#{$lockedSalesOrder->so_number}",
-                    'debit_amount'   => $totalAmount,
-                    'credit_amount'  => '0.0000',
-                    'created_at'     => $now,
-                    'updated_at'     => $now,
-                ],
-                [
-                    'transaction_id' => $transaction->id,
-                    'account_id'     => $revenueAccount->id,
-                    'sort_order'     => 2,
-                    'description'    =>
-                        "Sales Revenue - SO "
-                        . "#{$lockedSalesOrder->so_number}",
-                    'debit_amount'   => '0.0000',
-                    'credit_amount'  => $totalAmount,
-                    'created_at'     => $now,
-                    'updated_at'     => $now,
-                ],
+                'details' => $details,
             ]);
 
-            $transaction->load('details');
-
-            if (! $transaction->isBalanced) {
-                throw new RuntimeException(
-                    "Sales Order #{$lockedSalesOrder->so_number} "
-                    . 'accounting transaction is not balanced.'
-                );
-            }
-
-            $this->ledgerService->post($transaction);
-
             $lockedSalesOrder->update([
+                'is_stock_deducted' => true,
                 'is_accounted' => true,
             ]);
         });
     }
 
     /**
-     * Reverse Sales Order accounting when the Sales Order is cancelled.
+     * Deduct inventory for a Sales Order.
      *
-     * The Sales Order is reloaded and locked inside the transaction.
-     * This avoids relying on stale state from the model instance supplied
-     * by the caller.
+     * Every ProductStock row is locked before checking quantity.
+     *
+     * This prevents two concurrent Sales Orders from consuming
+     * the same available stock.
+     *
+     * @throws Throwable
+     */
+    private function deductSalesOrderStock(
+        SalesOrder $salesOrder
+    ): void {
+        if (empty($salesOrder->warehouse_id)) {
+            throw new RuntimeException(
+                "Warehouse is required before confirming Sales Order "
+                . "#{$salesOrder->so_number}."
+            );
+        }
+
+        $warehouse = \App\Models\Warehouse::query()
+            ->whereKey($salesOrder->warehouse_id)
+            ->where('company_id', $salesOrder->company_id)
+            ->first();
+
+        if (! $warehouse) {
+            throw new RuntimeException(
+                "Warehouse #{$salesOrder->warehouse_id} does not belong "
+                . "to company #{$salesOrder->company_id}."
+            );
+        }
+
+        $items = SalesOrderItem::query()
+            ->where('sales_order_id', $salesOrder->id)
+            ->with([
+                'product' => function ($query) use ($salesOrder): void {
+                    $query->where(
+                        'company_id',
+                        $salesOrder->company_id
+                    );
+                },
+            ])
+            ->get();
+
+        if ($items->isEmpty()) {
+            throw new RuntimeException(
+                "Sales Order #{$salesOrder->so_number} has no items."
+            );
+        }
+
+        foreach ($items as $item) {
+            if (empty($item->product_id)) {
+                throw new RuntimeException(
+                    "Sales Order #{$salesOrder->so_number} item #"
+                    . "{$item->id} does not have a product selected."
+                );
+            }
+
+            $product = $item->product;
+
+            if (! $product) {
+                throw new ModelNotFoundException(
+                    "Product #{$item->product_id} was not found for "
+                    . "company #{$salesOrder->company_id}."
+                );
+            }
+
+            $quantity = (string) ($item->quantity ?? '0');
+
+            if (bccomp($quantity, '0.0000', 4) <= 0) {
+                throw new RuntimeException(
+                    "Invalid quantity for product "
+                    . "#{$product->id} in Sales Order "
+                    . "#{$salesOrder->so_number}."
+                );
+            }
+
+            /*
+             * Lock the exact product/warehouse stock row.
+             *
+             * Do NOT firstOrCreate here. A missing row means zero stock.
+             */
+            $stock = ProductStock::query()
+                ->where('product_id', $product->id)
+                ->where('warehouse_id', $salesOrder->warehouse_id)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $stock) {
+                throw new RuntimeException(
+                    "Insufficient stock for {$product->name}. "
+                    . "Available: 0.00, Required: {$quantity}."
+                );
+            }
+
+            $available = (string) ($stock->quantity ?? '0');
+
+            if (bccomp($available, $quantity, 4) < 0) {
+                throw new RuntimeException(
+                    "Insufficient stock for {$product->name}. "
+                    . "Available: {$available}, "
+                    . "Required: {$quantity}."
+                );
+            }
+
+            /*
+             * Product purchase price is used as the stock movement cost.
+             */
+            $unitCost = (string) (
+                $product->purchase_price ?? '0.0000'
+            );
+
+            $totalCost = bcmul(
+                $quantity,
+                $unitCost,
+                4
+            );
+
+            /*
+             * Create the stock movement first.
+             *
+             * Because this is inside the DB transaction, it will be
+             * rolled back if the later accounting operation fails.
+             */
+            StockMovement::create([
+                'company_id' => $salesOrder->company_id,
+                'product_id' => $product->id,
+                'warehouse_id' => $salesOrder->warehouse_id,
+
+                'type' => 'out',
+
+                'quantity' => $quantity,
+                'unit_cost' => $unitCost,
+                'total_cost' => $totalCost,
+
+                'reference' => 'SO-' . $salesOrder->so_number,
+                'reference_type' => 'SalesOrder',
+                'reference_id' => $salesOrder->id,
+
+                'notes' =>
+                    "Stock issued for Sales Order #"
+                    . $salesOrder->so_number,
+
+                'movement_date' => $salesOrder->order_date
+                    ?? Carbon::today(),
+
+                'created_by' => Auth::id(),
+            ]);
+
+            /*
+             * The row is already locked, so this decrement cannot
+             * race with another stock-out operation on this row.
+             */
+            $stock->decrement(
+                'quantity',
+                $quantity
+            );
+        }
+
+        /*
+         * Do not set is_stock_deducted here.
+         *
+         * The flag is set only after accounting and ledger posting
+         * have succeeded.
+         */
+    }
+
+    /**
+     * Restore inventory when a confirmed Sales Order is cancelled.
+     *
+     * Stock is restored only when this Sales Order previously deducted it.
+     *
+     * @throws Throwable
+     */
+    private function restoreSalesOrderStock(
+        SalesOrder $salesOrder
+    ): void {
+        if (! $salesOrder->is_stock_deducted) {
+            return;
+        }
+
+        if (empty($salesOrder->warehouse_id)) {
+            throw new RuntimeException(
+                "Warehouse is missing for Sales Order "
+                . "#{$salesOrder->so_number}."
+            );
+        }
+
+        $items = SalesOrderItem::query()
+            ->where('sales_order_id', $salesOrder->id)
+            ->with([
+                'product' => function ($query) use ($salesOrder): void {
+                    $query->where(
+                        'company_id',
+                        $salesOrder->company_id
+                    );
+                },
+            ])
+            ->get();
+
+        foreach ($items as $item) {
+            if (empty($item->product_id)) {
+                throw new RuntimeException(
+                    "Cannot restore stock for Sales Order "
+                    . "#{$salesOrder->so_number}: "
+                    . "item #{$item->id} has no product."
+                );
+            }
+
+            $product = $item->product;
+
+            if (! $product) {
+                throw new ModelNotFoundException(
+                    "Product #{$item->product_id} was not found for "
+                    . "company #{$salesOrder->company_id}."
+                );
+            }
+
+            $quantity = (string) ($item->quantity ?? '0');
+
+            if (bccomp($quantity, '0.0000', 4) <= 0) {
+                throw new RuntimeException(
+                    "Invalid quantity for product "
+                    . "#{$product->id} in Sales Order "
+                    . "#{$salesOrder->so_number}."
+                );
+            }
+
+            /*
+             * Lock the stock row before restoring it.
+             */
+            $stock = ProductStock::query()
+                ->where('product_id', $product->id)
+                ->where('warehouse_id', $salesOrder->warehouse_id)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $stock) {
+                /*
+                 * A stock row should normally exist because the original
+                 * confirmation deducted from it. Re-create it only as a
+                 * defensive recovery path.
+                 */
+                $stock = ProductStock::create([
+                    'product_id' => $product->id,
+                    'warehouse_id' => $salesOrder->warehouse_id,
+                    'quantity' => '0.0000',
+                ]);
+
+                $stock->refresh();
+
+                /*
+                 * Re-lock the newly-created row before modifying it.
+                 */
+                $stock = ProductStock::query()
+                    ->whereKey($stock->id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+            }
+
+            $unitCost = (string) (
+                $product->purchase_price ?? '0.0000'
+            );
+
+            $totalCost = bcmul(
+                $quantity,
+                $unitCost,
+                4
+            );
+
+            StockMovement::create([
+                'company_id' => $salesOrder->company_id,
+                'product_id' => $product->id,
+                'warehouse_id' => $salesOrder->warehouse_id,
+
+                'type' => 'in',
+
+                'quantity' => $quantity,
+                'unit_cost' => $unitCost,
+                'total_cost' => $totalCost,
+
+                'reference' => 'SO-' . $salesOrder->so_number,
+                'reference_type' => 'SalesOrderCancellation',
+                'reference_id' => $salesOrder->id,
+
+                'notes' =>
+                    "Stock restored from cancelled Sales Order #"
+                    . $salesOrder->so_number,
+
+                'movement_date' => Carbon::today(),
+
+                'created_by' => Auth::id(),
+            ]);
+
+            $stock->increment(
+                'quantity',
+                $quantity
+            );
+        }
+    }
+
+    /**
+     * Reverse Sales Order accounting and restore stock on cancellation.
+     *
+     * Both accounting reversal and stock restoration are atomic.
+     * The reversal covers every ledger line of the voucher,
+     * including Discount and Tax lines.
      *
      * @throws Throwable
      */
@@ -258,51 +659,62 @@ final class SalesOrderAccountingService
                 ->lockForUpdate()
                 ->findOrFail($salesOrder->id);
 
+            if (
+                ! $lockedSalesOrder->is_accounted
+                && ! $lockedSalesOrder->is_stock_deducted
+            ) {
+                return;
+            }
+
             /*
-             * Always check the fresh database state.
-             *
-             * The caller's SalesOrder model may be stale because
-             * onConfirmed() or another process may have changed
-             * is_accounted after the model was loaded.
+             * Accounting reversal.
              */
-            if (! $lockedSalesOrder->is_accounted) {
-                return;
+            if ($lockedSalesOrder->is_accounted) {
+                $transaction = $this->findSalesTransaction(
+                    $lockedSalesOrder,
+                    lock: true
+                );
+
+                if (! $transaction) {
+                    throw new ModelNotFoundException(
+                        "Accounting transaction for Sales Order "
+                        . "#{$lockedSalesOrder->so_number} was not found."
+                    );
+                }
+
+                if ($transaction->isCancelled()) {
+                    /*
+                     * Already reversed. Continue to stock state.
+                     */
+                } elseif (! $transaction->isPosted()) {
+                    throw new RuntimeException(
+                        "Sales Order #{$lockedSalesOrder->so_number} "
+                        . 'accounting transaction is not posted.'
+                    );
+                } else {
+                    $this->ledgerService->cancel(
+                        $transaction,
+                        "Sales Order #{$lockedSalesOrder->so_number} cancelled"
+                    );
+                }
             }
 
-            $transaction = $this->findSalesTransaction(
-                $lockedSalesOrder,
-                lock: true
-            );
-
-            if (! $transaction) {
-                throw new ModelNotFoundException(
-                    "Accounting transaction for Sales Order "
-                    . "#{$lockedSalesOrder->so_number} was not found."
+            /*
+             * Restore inventory only if stock was actually deducted.
+             */
+            if ($lockedSalesOrder->is_stock_deducted) {
+                $this->restoreSalesOrderStock(
+                    $lockedSalesOrder
                 );
             }
 
-            if ($transaction->isCancelled()) {
-                $lockedSalesOrder->update([
-                    'is_accounted' => false,
-                ]);
-
-                return;
-            }
-
-            if (! $transaction->isPosted()) {
-                throw new RuntimeException(
-                    "Sales Order #{$lockedSalesOrder->so_number} "
-                    . 'accounting transaction is not posted.'
-                );
-            }
-
-            $this->ledgerService->cancel(
-                $transaction,
-                "Sales Order #{$lockedSalesOrder->so_number} cancelled"
-            );
-
+            /*
+             * Only clear the flags after all reversal operations
+             * have completed successfully.
+             */
             $lockedSalesOrder->update([
                 'is_accounted' => false,
+                'is_stock_deducted' => false,
             ]);
         });
     }
@@ -319,8 +731,14 @@ final class SalesOrderAccountingService
         Transaction $transaction
     ): void {
         if ($transaction->isPosted()) {
+            /*
+             * Existing posted transaction means accounting is already
+             * complete. Stock must also have been processed before this
+             * method was reached.
+             */
             $salesOrder->update([
                 'is_accounted' => true,
+                'is_stock_deducted' => true,
             ]);
 
             return;
@@ -338,6 +756,7 @@ final class SalesOrderAccountingService
 
             $salesOrder->update([
                 'is_accounted' => true,
+                'is_stock_deducted' => true,
             ]);
 
             return;
@@ -392,12 +811,22 @@ final class SalesOrderAccountingService
     }
 
     /**
-     * Calculate the Sales Order total using decimal arithmetic.
+     * Calculate Sales Order amounts using decimal (bcmath) arithmetic.
+     *
+     * subtotal = SUM(quantity * unit_price)
+     * total    = subtotal + tax - discount
+     *
+     * The recalculated total must match the stored order total
+     * (within rounding tolerance), otherwise accounting is rejected.
+     *
+     * @return array{subtotal: string, tax: string, discount: string, total: string}
+     *
+     * @throws RuntimeException
      */
-    private function calculateSalesOrderTotal(
+    private function calculateSalesOrderAmounts(
         SalesOrder $salesOrder
-    ): string {
-        $total = '0.0000';
+    ): array {
+        $subtotal = '0.0000';
 
         foreach (
             $salesOrder->items()->get([
@@ -405,37 +834,129 @@ final class SalesOrderAccountingService
                 'unit_price',
             ]) as $item
         ) {
-            $quantity = (string) ($item->quantity ?? '0');
-            $unitPrice = (string) ($item->unit_price ?? '0');
-
             $lineTotal = bcmul(
-                $quantity,
-                $unitPrice,
+                $this->toDecimal($item->quantity),
+                $this->toDecimal($item->unit_price),
                 4
             );
 
-            $total = bcadd(
-                $total,
+            $subtotal = bcadd(
+                $subtotal,
                 $lineTotal,
                 4
             );
         }
 
-        return $total;
+        $tax = $this->toDecimal($salesOrder->tax);
+        $discount = $this->toDecimal($salesOrder->discount);
+
+        if (bccomp($tax, '0', 4) < 0) {
+            throw new RuntimeException(
+                "Sales Order #{$salesOrder->so_number} tax cannot be negative."
+            );
+        }
+
+        if (bccomp($discount, '0', 4) < 0) {
+            throw new RuntimeException(
+                "Sales Order #{$salesOrder->so_number} discount cannot be negative."
+            );
+        }
+
+        if (bccomp($subtotal, '0', 4) <= 0) {
+            throw new RuntimeException(
+                "Cannot create accounting entry for Sales Order "
+                . "#{$salesOrder->so_number}. "
+                . 'Items subtotal must be greater than zero.'
+            );
+        }
+
+        $total = bcsub(
+            bcadd($subtotal, $tax, 4),
+            $discount,
+            4
+        );
+
+        if (bccomp($total, '0', 4) <= 0) {
+            throw new RuntimeException(
+                "Cannot create accounting entry for Sales Order "
+                . "#{$salesOrder->so_number}. "
+                . 'Total amount must be greater than zero.'
+            );
+        }
+
+        /*
+         * The ledger must agree with the amount the customer was shown.
+         */
+        $difference = bcsub(
+            $total,
+            $this->toDecimal($salesOrder->total),
+            4
+        );
+
+        if (bccomp($difference, '0', 4) < 0) {
+            $difference = bcmul($difference, '-1', 4);
+        }
+
+        if (bccomp($difference, self::TOTAL_TOLERANCE, 4) > 0) {
+            throw new RuntimeException(
+                "Sales Order #{$salesOrder->so_number} total does not "
+                . 'match its items, tax and discount. '
+                . "Calculated: {$total}, Stored: "
+                . $this->toDecimal($salesOrder->total) . '.'
+            );
+        }
+
+        return [
+            'subtotal' => $subtotal,
+            'tax' => $tax,
+            'discount' => $discount,
+            'total' => $total,
+        ];
+    }
+
+    /**
+     * Normalize a DB value into a plain decimal string for bcmath.
+     */
+    private function toDecimal(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return '0.0000';
+        }
+
+        $string = (string) $value;
+
+        if (preg_match('/^-?\d+(\.\d+)?$/', $string) === 1) {
+            return bcadd($string, '0', 4);
+        }
+
+        return number_format((float) $value, 4, '.', '');
     }
 
     /**
      * Get or create the customer Accounts Receivable account.
      *
-     * The customer and account are strictly company-scoped.
+     * Customer and account are strictly company-scoped.
+     *
+     * Every customer has its own account with the unique code
+     * "AR-{customer id}" (accounts.account_code is varchar(20)).
+     *
+     * Legacy accounts created before codes were assigned (account_code
+     * is NULL) are adopted by name, but only when the customer name is
+     * unambiguous, so the customer's existing ledger history stays on
+     * one account.
      */
     protected function getOrCreateCustomerReceivableAccount(
         int $customerId,
         int $companyId
     ): Account {
+        /*
+         * Lock the customer row so two concurrent confirmations for the
+         * same customer cannot create two receivable accounts.
+         */
         $customer = Customer::query()
             ->whereKey($customerId)
             ->where('company_id', $companyId)
+            ->lockForUpdate()
             ->first();
 
         if (! $customer) {
@@ -445,11 +966,11 @@ final class SalesOrderAccountingService
             );
         }
 
-        $accountName = "AR - {$customer->name}";
+        $accountCode = 'AR-' . $customer->id;
 
         $account = Account::query()
             ->where('company_id', $companyId)
-            ->where('account_name', $accountName)
+            ->where('account_code', $accountCode)
             ->where('account_type', 'Asset')
             ->where('nature', 'Customer')
             ->first();
@@ -458,60 +979,113 @@ final class SalesOrderAccountingService
             return $account;
         }
 
+        $sameNameCustomers = Customer::query()
+            ->where('company_id', $companyId)
+            ->where('name', $customer->name)
+            ->count();
+
+        $accountName = $sameNameCustomers > 1
+            ? "AR - {$customer->name} (#{$customer->id})"
+            : "AR - {$customer->name}";
+
+        if ($sameNameCustomers === 1) {
+            $legacyAccount = Account::query()
+                ->where('company_id', $companyId)
+                ->where('account_name', $accountName)
+                ->where('account_type', 'Asset')
+                ->where('nature', 'Customer')
+                ->whereNull('account_code')
+                ->lockForUpdate()
+                ->first();
+
+            if ($legacyAccount) {
+                $legacyAccount->update([
+                    'account_code' => $accountCode,
+                ]);
+
+                return $legacyAccount;
+            }
+        }
+
         return Account::create([
-            'company_id'      => $companyId,
-            'account_name'    => $accountName,
-            'account_type'    => 'Asset',
-            'nature'          => 'Customer',
-            'code'            => $this->generateAccountCode(
-                $companyId,
-                'AR'
-            ),
+            'company_id' => $companyId,
+            'account_name' => $accountName,
+            'account_type' => 'Asset',
+            'nature' => 'Customer',
+            'account_code' => $accountCode,
+            'balance_type' => 'Debit',
             'opening_balance' => '0.0000',
+            'is_active' => true,
         ]);
     }
 
     /**
-     * Get or create the Sales Revenue account.
+     * Get the existing Sales Revenue account.
+     *
+     * It must never create another Sales Revenue account.
+     *
+     * @throws RuntimeException
      */
     protected function getSalesRevenueAccount(
         int $companyId
     ): Account {
-        $account = Account::query()
-            ->where('company_id', $companyId)
-            ->where('account_type', 'Income')
-            ->where('nature', 'Sales')
-            ->first();
+        return $this->getConfiguredAccount(
+            $companyId,
+            self::SALES_REVENUE_NAME,
+            self::SALES_REVENUE_TYPE
+        );
+    }
 
-        if ($account) {
-            return $account;
+    /**
+     * Get an existing, active, company-scoped account by NAME and TYPE.
+     *
+     * Used for Sales Revenue, Sales Discount and VAT Payable.
+     * These accounts are never created automatically.
+     *
+     * The name AND type must both match, so an account that merely
+     * shares the same Liability/Income type (for example "Loan Payable")
+     * is never posted to by mistake. Deleted accounts are ignored.
+     *
+     * If more than one active account matches, posting is refused
+     * instead of silently picking one.
+     *
+     * @throws RuntimeException
+     */
+    protected function getConfiguredAccount(
+        int $companyId,
+        string $accountName,
+        string $accountType
+    ): Account {
+        $accounts = Account::query()
+            ->where('company_id', $companyId)
+            ->where('account_name', $accountName)
+            ->where('account_type', $accountType)
+            ->where('is_active', true)
+            ->limit(2)
+            ->get();
+
+        if ($accounts->isEmpty()) {
+            throw new RuntimeException(
+                "{$accountName} ({$accountType}) account is not configured "
+                . "for company #{$companyId}."
+            );
         }
 
-        return Account::create([
-            'company_id'      => $companyId,
-            'account_name'    => 'Sales Revenue',
-            'account_type'    => 'Income',
-            'nature'          => 'Sales',
-            'code'            => $this->generateAccountCode(
-                $companyId,
-                'SALES'
-            ),
-            'opening_balance' => '0.0000',
-        ]);
+        if ($accounts->count() > 1) {
+            throw new RuntimeException(
+                "More than one active {$accountName} ({$accountType}) "
+                . "account exists for company #{$companyId}. "
+                . 'Keep only one.'
+            );
+        }
+
+        return $accounts->first();
     }
 
     /**
      * Get the company-specific Sales Voucher Type.
      *
-     * The current voucher_types schema identifies voucher types using
-     * code, not slug.
-     *
-     * Sales Voucher:
-     *
-     *     code   = SV
-     *     nature = journal
-     *
-     * @throws RuntimeException
+     * code = SV
      */
     protected function getSalesVoucherType(
         int $companyId
@@ -535,9 +1109,6 @@ final class SalesOrderAccountingService
 
     /**
      * Resolve the financial year for the Sales Order.
-     *
-     * Existing financial_year_id is accepted only when it belongs
-     * to the same company.
      *
      * @throws RuntimeException
      */
@@ -610,35 +1181,5 @@ final class SalesOrderAccountingService
         SalesOrder $salesOrder
     ): string {
         return 'SO-' . $salesOrder->so_number;
-    }
-
-    /**
-     * Generate a unique account code.
-     *
-     * The generated code is checked against the same company before use.
-     */
-    protected function generateAccountCode(
-        int $companyId,
-        string $prefix
-    ): string {
-        do {
-            $code = sprintf(
-                '%s-%d-%s',
-                $prefix,
-                $companyId,
-                now()->format('YmdHisv')
-            );
-
-            $exists = Account::query()
-                ->where('company_id', $companyId)
-                ->where('code', $code)
-                ->exists();
-
-            if ($exists) {
-                usleep(1000);
-            }
-        } while ($exists);
-
-        return $code;
     }
 }

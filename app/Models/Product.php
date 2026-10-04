@@ -55,6 +55,13 @@ class Product extends Model
     {
         return (float) $this->stocks->sum('quantity');
     }
+    /**
+ * Total inventory value based on the current purchase price.
+ */
+    public function stockValue(): float
+    {
+        return $this->totalStock() * (float) $this->purchase_price;
+    }
 
     /**
      * True when total stock has fallen at/below the reorder level.

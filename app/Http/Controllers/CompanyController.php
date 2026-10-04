@@ -145,6 +145,11 @@ class CompanyController extends Controller
                             'code'   => 'OV',
                             'nature' => VoucherType::NATURE_OPENING,
                         ],
+                        [
+                            'name'   => 'Sales Voucher',
+                            'code'   => 'SV',
+                            'nature' => VoucherType::NATURE_JOURNAL,
+                        ],
                     ];
 
                     foreach ($voucherTypes as $voucherType) {
@@ -168,6 +173,7 @@ class CompanyController extends Controller
             // public self-signup flow (CompanySignupController) enforces
             // that limit. The new owner still needs a subscription so
             // later plan-limit checks (e.g. adding more users) work.
+            app(\App\Services\CompanyAccountingDefaults::class)->ensure($company);
             $company->update(['owner_id' => $admin->id]);
             $this->subscriptionService->subscribeToFreePlan($admin);
         });
