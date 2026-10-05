@@ -89,8 +89,10 @@ class PurchaseBillController extends Controller
             ],
             'bill_date' => ['required', 'date'],
             'items' => ['required', 'array', 'min:1'],
+            
             'items.*.account_id' => [
-                'required',
+                Rule::requiredIf(fn () => ! $request->filled('purchase_order_id')),
+                'nullable',
                 'integer',
                 Rule::exists('accounts', 'id')
                     ->where(
@@ -100,6 +102,7 @@ class PurchaseBillController extends Controller
                         )
                     ),
             ],
+
             'items.*.item_name' => ['required', 'string'],
             'items.*.quantity' => ['required', 'numeric', 'min:0.01'],
             'items.*.unit_price' => ['required', 'numeric', 'min:0'],
@@ -165,7 +168,7 @@ class PurchaseBillController extends Controller
             foreach ($request->items as $item) {
                 PurchaseBillItem::create([
                     'purchase_bill_id' => $bill->id,
-                    'account_id' => $item['account_id'],
+                    'account_id' => $item['account_id'] ?? null,
                     'item_name' => $item['item_name'],
                     'description' => $item['description'] ?? null,
                     'quantity' => $item['quantity'],

@@ -7,8 +7,8 @@ namespace App\Services;
 use App\Models\Account;
 use App\Models\FinancialYear;
 use App\Models\PurchaseBill;
-use App\Models\PurchaseBillItem;
 use App\Models\PurchaseBillPayment;
+use App\Models\PurchaseOrder;
 use App\Models\Transaction;
 use App\Models\Vendor;
 use App\Models\VoucherType;
@@ -37,9 +37,18 @@ class PurchaseAccountingService
     /**
      * Create and post the automatic Purchase Voucher for a Purchase Bill.
      *
-     * Journal:
-     * Debit  : Purchase Expense / Asset accounts
-     * Credit : Vendor Accounts Payable
+     * Standalone Purchase Bill:
+     *
+     * Dr Purchase Expense / Asset
+     * Cr Vendor Accounts Payable
+     *
+     * Received Purchase Order linked Bill:
+     *
+     * Dr Purchase Clearing
+     * Cr Vendor Accounts Payable
+     *
+     * The inventory debit has already happened when the Purchase Order
+     * was received, so a PO-linked bill must never debit inventory again.
      */
     public function createAutoVoucher(
         PurchaseBill $purchaseBill
@@ -96,7 +105,7 @@ class PurchaseAccountingService
 
             /*
              * Tax and discount do not currently have dedicated accounting
-             * accounts in the Purchase Bill form, so automatic posting
+             * accounts in the Purchase Bill flow, so automatic posting
              * must reject non-zero values.
              */
             if ((float) $bill->tax !== 0.0) {
@@ -114,9 +123,12 @@ class PurchaseAccountingService
             /*
              * Vendor validation.
              */
-            $vendor = $bill->vendor()->first();
+            $vendor = Vendor::query()
+                ->where('company_id', $companyId)
+                ->whereKey($bill->vendor_id)
+                ->first();
 
-            if (! $vendor || (int) $vendor->company_id !== $companyId) {
+            if (! $vendor) {
                 throw new RuntimeException(
                     "Vendor for Purchase Bill #{$bill->bill_number} does not belong to the company."
                 );
@@ -150,8 +162,78 @@ class PurchaseAccountingService
             }
 
             /*
-             * Purchase items become debit lines.
-             * Only Expense and Asset accounts are allowed.
+             * Determine whether this Purchase Bill is linked to a Purchase Order.
+             */
+            $purchaseOrder = null;
+
+            if ($bill->purchase_order_id) {
+                $purchaseOrder = PurchaseOrder::query()
+                    ->where('company_id', $companyId)
+                    ->lockForUpdate()
+                    ->find($bill->purchase_order_id);
+
+                if (! $purchaseOrder) {
+                    throw new RuntimeException(
+                        "Purchase Bill #{$bill->bill_number} references a Purchase Order "
+                        . "that does not belong to company #{$companyId}."
+                    );
+                }
+
+                /*
+                 * Only a received PO can be cleared by a Purchase Bill.
+                 */
+                if ($purchaseOrder->status !== 'Received') {
+                    throw new RuntimeException(
+                        "Purchase Order #{$purchaseOrder->id} must be Received "
+                        . "before Purchase Bill #{$bill->bill_number} can be posted."
+                    );
+                }
+
+                /*
+                 * The PO receive must already have created a posted/approved
+                 * accounting transaction.
+                 *
+                 * This prevents a Purchase Bill from clearing Purchase
+                 * Clearing when the PO was merely marked Received without
+                 * successful accounting.
+                 */
+                $purchaseOrderTransaction = Transaction::query()
+                    ->where('company_id', $companyId)
+                    ->where('reference_type', 'PurchaseOrder')
+                    ->where('reference_id', $purchaseOrder->id)
+                    ->whereIn(
+                        'status',
+                        [
+                            Transaction::STATUS_APPROVED,
+                            Transaction::STATUS_POSTED,
+                        ]
+                    )
+                    ->first();
+
+                if (! $purchaseOrderTransaction) {
+                    throw new RuntimeException(
+                        "Purchase Order #{$purchaseOrder->id} has no posted "
+                        . "Purchase Order receive transaction."
+                    );
+                }
+
+                /*
+                 * The Purchase Bill vendor must match the Purchase Order vendor.
+                 */
+                if ((int) $purchaseOrder->vendor_id !== (int) $bill->vendor_id) {
+                    throw new RuntimeException(
+                        "Purchase Bill #{$bill->bill_number} vendor does not match "
+                        . "Purchase Order #{$purchaseOrder->id}."
+                    );
+                }
+            }
+
+            /*
+             * Purchase Bill items are always required at the document level.
+             *
+             * For a received PO-linked bill, item account_id is not used
+             * for accounting because the inventory debit already happened
+             * during PO receiving.
              */
             $items = $bill->items()->get();
 
@@ -162,110 +244,220 @@ class PurchaseAccountingService
             }
 
             $details = [];
-            $debitTotal = 0.0;
 
-            foreach ($items as $item) {
-                if (! $item->account_id) {
-                    throw new RuntimeException(
-                        "Purchase Bill item #{$item->id} has no account configured."
-                    );
-                }
-
-                $account = Account::query()
+            /*
+             * -------------------------------------------------------------
+             * PO-LINKED / RECEIVED PURCHASE BILL
+             * -------------------------------------------------------------
+             *
+             * PO Receive:
+             *
+             * Dr Inventory
+             * Cr Purchase Clearing
+             *
+             * Purchase Bill:
+             *
+             * Dr Purchase Clearing
+             * Cr Vendor Payable
+             */
+            if ($purchaseOrder !== null) {
+                $purchaseClearing = Account::query()
                     ->where('company_id', $companyId)
-                    ->whereKey($item->account_id)
+                    ->where('account_name', 'Purchase Clearing')
+                    ->where('account_type', 'Liability')
                     ->where('is_active', true)
                     ->first();
 
-                if (! $account) {
+                if (! $purchaseClearing) {
                     throw new RuntimeException(
-                        "Purchase item account #{$item->account_id} is invalid for company #{$companyId}."
+                        "Purchase Clearing account is not configured for company #{$companyId}."
                     );
                 }
 
-                if (! in_array(
-                    $account->account_type,
-                    ['Expense', 'Asset'],
-                    true
-                )) {
+                $purchaseOrderTotal = round(
+                    (float) $purchaseOrder->total,
+                    4
+                );
+
+                $billTotal = round(
+                    (float) $bill->total,
+                    4
+                );
+
+                if ($purchaseOrderTotal <= 0) {
                     throw new RuntimeException(
-                        "Purchase item account #{$account->id} must be an Expense or Asset account."
+                        "Purchase Order #{$purchaseOrder->id} total must be greater than zero."
+                    );
+                }
+
+                if ($billTotal <= 0) {
+                    throw new RuntimeException(
+                        "Purchase Bill #{$bill->bill_number} total must be greater than zero."
                     );
                 }
 
                 /*
-                 * An Asset account that holds money or customer balances
-                 * is not a purchase destination.
+                 * Since tax and discount are zero for automatic posting,
+                 * the bill must match the received PO total exactly.
                  */
-                if (
-                    $account->account_type === 'Asset'
-                    && in_array(
-                        $account->nature,
-                        self::NON_PURCHASE_ASSET_NATURES,
-                        true
-                    )
-                ) {
+                if (abs($purchaseOrderTotal - $billTotal) > 0.0001) {
                     throw new RuntimeException(
-                        "Purchase item account #{$account->id} "
-                        . "({$account->account_name}) cannot receive purchases: "
-                        . "{$account->nature} accounts are not allowed."
+                        "Purchase Bill #{$bill->bill_number} total does not match "
+                        . "received Purchase Order #{$purchaseOrder->id} total."
                     );
                 }
 
-                $amount = round((float) $item->total, 4);
-
-                if ($amount <= 0) {
-                    throw new RuntimeException(
-                        "Purchase Bill item #{$item->id} must have a positive total."
-                    );
-                }
-
-                $debitTotal += $amount;
-
+                /*
+                 * Clear the temporary Purchase Clearing balance.
+                 */
                 $details[] = [
-                    'account_id' => $account->id,
+                    'account_id' => $purchaseClearing->id,
                     'description' =>
-                        $item->item_name
-                        . " - Purchase Bill #{$bill->bill_number}",
+                        "Purchase Clearing - PO #"
+                        . (
+                            ! empty($purchaseOrder->po_number)
+                                ? $purchaseOrder->po_number
+                                : $purchaseOrder->id
+                        )
+                        . " - Bill #{$bill->bill_number}",
                     'debit_amount' =>
-                        number_format($amount, 4, '.', ''),
+                        number_format($billTotal, 4, '.', ''),
                     'credit_amount' => '0.0000',
+                ];
+
+                /*
+                 * Credit Vendor Accounts Payable.
+                 */
+                $details[] = [
+                    'account_id' => $vendorAccount->id,
+                    'description' =>
+                        "Accounts Payable - {$vendor->name} "
+                        . "- Bill #{$bill->bill_number}",
+                    'debit_amount' => '0.0000',
+                    'credit_amount' =>
+                        number_format($billTotal, 4, '.', ''),
+                ];
+            } else {
+                /*
+                 * ---------------------------------------------------------
+                 * STANDALONE PURCHASE BILL
+                 * ---------------------------------------------------------
+                 *
+                 * Preserve the existing accounting behavior:
+                 *
+                 * Dr Purchase Expense / Asset
+                 * Cr Vendor Payable
+                 */
+                $debitTotal = 0.0;
+
+                foreach ($items as $item) {
+                    if (! $item->account_id) {
+                        throw new RuntimeException(
+                            "Purchase Bill item #{$item->id} has no account configured."
+                        );
+                    }
+
+                    $account = Account::query()
+                        ->where('company_id', $companyId)
+                        ->whereKey($item->account_id)
+                        ->where('is_active', true)
+                        ->first();
+
+                    if (! $account) {
+                        throw new RuntimeException(
+                            "Purchase item account #{$item->account_id} is invalid "
+                            . "for company #{$companyId}."
+                        );
+                    }
+
+                    if (! in_array(
+                        $account->account_type,
+                        ['Expense', 'Asset'],
+                        true
+                    )) {
+                        throw new RuntimeException(
+                            "Purchase item account #{$account->id} "
+                            . "must be an Expense or Asset account."
+                        );
+                    }
+
+                    /*
+                     * Cash, Bank and Customer receivable accounts are not
+                     * valid destinations for a standalone purchase.
+                     */
+                    if (
+                        $account->account_type === 'Asset'
+                        && in_array(
+                            $account->nature,
+                            self::NON_PURCHASE_ASSET_NATURES,
+                            true
+                        )
+                    ) {
+                        throw new RuntimeException(
+                            "Purchase item account #{$account->id} "
+                            . "({$account->account_name}) cannot receive purchases: "
+                            . "{$account->nature} accounts are not allowed."
+                        );
+                    }
+
+                    $amount = round((float) $item->total, 4);
+
+                    if ($amount <= 0) {
+                        throw new RuntimeException(
+                            "Purchase Bill item #{$item->id} must have a positive total."
+                        );
+                    }
+
+                    $debitTotal += $amount;
+
+                    $details[] = [
+                        'account_id' => $account->id,
+                        'description' =>
+                            $item->item_name
+                            . " - Purchase Bill #{$bill->bill_number}",
+                        'debit_amount' =>
+                            number_format($amount, 4, '.', ''),
+                        'credit_amount' => '0.0000',
+                    ];
+                }
+
+                $billTotal = round(
+                    (float) $bill->total,
+                    4
+                );
+
+                if ($billTotal <= 0) {
+                    throw new RuntimeException(
+                        "Purchase Bill #{$bill->bill_number} total must be greater than zero."
+                    );
+                }
+
+                /*
+                 * Item debits must exactly match the Purchase Bill total.
+                 */
+                if (abs($debitTotal - $billTotal) > 0.0001) {
+                    throw new RuntimeException(
+                        "Purchase Bill #{$bill->bill_number} is not balanced "
+                        . "for automatic accounting."
+                    );
+                }
+
+                /*
+                 * Credit Vendor Accounts Payable.
+                 */
+                $details[] = [
+                    'account_id' => $vendorAccount->id,
+                    'description' =>
+                        "Accounts Payable - {$vendor->name} "
+                        . "- Bill #{$bill->bill_number}",
+                    'debit_amount' => '0.0000',
+                    'credit_amount' =>
+                        number_format($billTotal, 4, '.', ''),
                 ];
             }
 
-            $billTotal = round((float) $bill->total, 4);
-
-            if ($billTotal <= 0) {
-                throw new RuntimeException(
-                    "Purchase Bill #{$bill->bill_number} total must be greater than zero."
-                );
-            }
-
             /*
-             * Because tax and discount are currently zero for automatic
-             * accounting, item debits must exactly match the bill total.
-             */
-            if (abs($debitTotal - $billTotal) > 0.0001) {
-                throw new RuntimeException(
-                    "Purchase Bill #{$bill->bill_number} is not balanced for automatic accounting."
-                );
-            }
-
-            /*
-             * Accounts Payable credit.
-             */
-            $details[] = [
-                'account_id' => $vendorAccount->id,
-                'description' =>
-                    "Accounts Payable - {$vendor->name} "
-                    . "- Bill #{$bill->bill_number}",
-                'debit_amount' => '0.0000',
-                'credit_amount' =>
-                    number_format($billTotal, 4, '.', ''),
-            ];
-
-            /*
-             * Purchase Voucher.
+             * Purchase Voucher type.
              */
             $voucherType = VoucherType::query()
                 ->where('company_id', $companyId)
@@ -299,7 +491,7 @@ class PurchaseAccountingService
             /*
              * Reference-level idempotency protection.
              *
-             * This protects against a transaction existing while the
+             * This protects against a transaction existing while
              * purchase_bill.transaction_id was not yet linked.
              */
             $existing = Transaction::query()
@@ -331,18 +523,11 @@ class PurchaseAccountingService
             }
 
             /*
-             * createAutoPosted() already performs:
+             * createAutoPosted() performs:
              *
-             * createDraft()
-             *      ↓
-             * approve
-             *      ↓
-             * postApproved()
-             *      ↓
-             * LedgerPostingService::post()
+             * Draft -> Approved -> Ledger Posting
              *
-             * Therefore we must NOT call LedgerPostingService::post()
-             * again here.
+             * Do not call LedgerPostingService directly here.
              */
             $transaction = $this->voucherService->createAutoPosted([
                 'company_id' => $companyId,
@@ -353,7 +538,16 @@ class PurchaseAccountingService
                 'reference_id' => $bill->id,
                 'reference_number' => $referenceNumber,
                 'narration' =>
-                    "Purchase Bill #{$bill->bill_number} - {$vendor->name}",
+                    $purchaseOrder !== null
+                        ? "Purchase Bill #{$bill->bill_number} "
+                            . "- PO #"
+                            . (
+                                ! empty($purchaseOrder->po_number)
+                                    ? $purchaseOrder->po_number
+                                    : $purchaseOrder->id
+                            )
+                            . " - {$vendor->name}"
+                        : "Purchase Bill #{$bill->bill_number} - {$vendor->name}",
                 'details' => $details,
             ]);
 

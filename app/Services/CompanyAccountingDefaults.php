@@ -45,6 +45,14 @@ final class CompanyAccountingDefaults
             'balance_type' => 'Credit',
             'start' => 5001,
         ],
+
+         [
+            'name' => 'Purchase Clearing',
+            'type' => 'Liability',
+            'nature' => 'General',
+            'balance_type' => 'Credit',
+            'start' => 2007,
+        ],
         [
             'name' => 'VAT Payable',
             'type' => 'Liability',
@@ -59,6 +67,8 @@ final class CompanyAccountingDefaults
             'balance_type' => 'Debit',
             'start' => 2121,
         ],
+
+       
     ];
 
     private const REQUIRED_VOUCHER_TYPES = [

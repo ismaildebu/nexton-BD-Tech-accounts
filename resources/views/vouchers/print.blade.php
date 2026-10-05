@@ -178,6 +178,7 @@
                 </tr>
             </tfoot>
         </table>
+        <p><strong>Amount in words:</strong> {{ \App\Support\AmountInWords::taka($transaction->total_debit) }}</p>
 
         {{-- ============================================================ --}}
         {{-- SIGNATURE AREA --}}
@@ -198,13 +199,18 @@
                     <p class="text-xs text-gray-400 mt-4">&nbsp;</p>
                 </div>
             </div>
+            
 
             <div class="text-center">
                 <div class="border-t border-gray-400 pt-2">
                     <p class="text-xs font-semibold text-gray-700">Approved By</p>
-                    @if($transaction->isPosted())
-                        <p class="text-xs text-gray-500 mt-0.5">{{ $transaction->poster?->name ?? '—' }}</p>
-                        <p class="text-xs text-gray-400">{{ $transaction->posted_at?->format('d M Y') }}</p>
+                    @if($transaction->approver)
+                    <p class="text-xs text-gray-500 mt-0.5">{{ $transaction->approver->name }}</p>
+                    <p class="text-xs text-gray-400">{{ $transaction->approved_at?->format('d M Y') }}</p>
+                @elseif($transaction->isPosted())
+                    <p class="text-xs text-gray-500 mt-0.5">Auto-approved by system</p>
+                    <p class="text-xs text-gray-400">{{ $transaction->posted_at?->format('d M Y') }}</p>
+                    
                     @else
                         <p class="text-xs text-gray-400 mt-4">&nbsp;</p>
                     @endif

@@ -3,25 +3,28 @@
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToCompany;
+use App\Models\Account;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+
 
 class Product extends Model
 {
     use HasFactory, BelongsToCompany;
 
     protected $fillable = [
-        'company_id',
-        'name',
-        'sku',
-        'category',
-        'unit',
-        'purchase_price',
-        'sale_price',
-        'reorder_level',
-        'description',
-        'is_active',
-    ];
+            'company_id',
+            'name',
+            'sku',
+            'category',
+            'unit',
+            'purchase_price',
+            'sale_price',
+            'reorder_level',
+            'description',
+            'is_active',
+            'inventory_account_id',
+        ];
 
     protected $casts = [
         'purchase_price' => 'decimal:2',
@@ -70,4 +73,8 @@ class Product extends Model
     {
         return $this->totalStock() <= (float) $this->reorder_level;
     }
+    public function inventoryAccount()
+        {
+            return $this->belongsTo(Account::class, 'inventory_account_id');
+        }
 }
