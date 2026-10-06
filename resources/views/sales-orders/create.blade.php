@@ -1,10 +1,13 @@
 @extends('layouts.app')
 
 @section('title', 'New Sales Order')
+
 @section('page-title', 'New Sales Order')
+
 @section('page-subtitle', 'Create a new sales order')
 
 @section('content')
+
 <div
     class="max-w-5xl mx-auto"
     x-data="soForm()"
@@ -126,6 +129,7 @@
 
                 <div class="overflow-x-auto">
                     <table class="w-full text-sm border rounded-lg overflow-hidden">
+
                         <thead class="bg-slate-50">
                             <tr>
                                 <th class="text-left px-3 py-2 font-medium min-w-48">
@@ -165,6 +169,7 @@
 
                                     {{-- Product --}}
                                     <td class="px-2 py-2">
+
                                         <select
                                             :name="`items[${index}][product_id]`"
                                             x-model="item.product_id"
@@ -177,10 +182,9 @@
                                             </option>
 
                                             @foreach($products as $product)
-                                                <option
-                                                    value="{{ $product->id }}"
-                                                >
+                                                <option value="{{ $product->id }}">
                                                     {{ $product->name }}
+
                                                     @if($product->sku)
                                                         ({{ $product->sku }})
                                                     @endif
@@ -194,6 +198,7 @@
                                             :name="`items[${index}][item_name]`"
                                             x-model="item.item_name"
                                         >
+
                                     </td>
 
                                     {{-- Description --}}
@@ -267,14 +272,16 @@
                                 </tr>
                             </template>
                         </tbody>
+
                     </table>
                 </div>
             </div>
 
             {{-- Totals --}}
             <div class="flex justify-end">
-                <div class="w-72 space-y-2">
+                <div class="w-80 space-y-2">
 
+                    {{-- Subtotal --}}
                     <div class="flex justify-between text-sm">
                         <span class="text-slate-600">
                             Subtotal:
@@ -286,38 +293,75 @@
                         ></span>
                     </div>
 
+                    {{-- Tax Percentage --}}
                     <div class="flex justify-between items-center text-sm">
                         <span class="text-slate-600">
-                            Tax (৳):
+                            Tax (%):
                         </span>
 
-                        <input
-                            type="number"
-                            name="tax"
-                            x-model="tax"
-                            @input="calcGrandTotal()"
-                            min="0"
-                            step="0.01"
-                            class="w-32 border border-slate-300 rounded px-2 py-1 text-sm text-right"
-                        >
+                        <div class="flex items-center gap-2">
+                            <input
+                                type="number"
+                                name="tax"
+                                x-model="tax"
+                                @input="calcGrandTotal()"
+                                min="0"
+                                max="100"
+                                step="0.01"
+                                class="w-24 border border-slate-300 rounded px-2 py-1 text-sm text-right"
+                            >
+
+                            <span class="text-slate-500">%</span>
+                        </div>
                     </div>
 
+                    {{-- Tax Amount --}}
+                    <div class="flex justify-between text-sm">
+                        <span class="text-slate-500">
+                            Tax Amount:
+                        </span>
+
+                        <span
+                            x-text="'৳' + taxAmount.toFixed(2)"
+                            class="text-slate-600"
+                        ></span>
+                    </div>
+
+                    {{-- Discount Percentage --}}
                     <div class="flex justify-between items-center text-sm">
                         <span class="text-slate-600">
-                            Discount (৳):
+                            Discount (%):
                         </span>
 
-                        <input
-                            type="number"
-                            name="discount"
-                            x-model="discount"
-                            @input="calcGrandTotal()"
-                            min="0"
-                            step="0.01"
-                            class="w-32 border border-slate-300 rounded px-2 py-1 text-sm text-right"
-                        >
+                        <div class="flex items-center gap-2">
+                            <input
+                                type="number"
+                                name="discount"
+                                x-model="discount"
+                                @input="calcGrandTotal()"
+                                min="0"
+                                max="100"
+                                step="0.01"
+                                class="w-24 border border-slate-300 rounded px-2 py-1 text-sm text-right"
+                            >
+
+                            <span class="text-slate-500">%</span>
+                        </div>
                     </div>
 
+                    {{-- Discount Amount --}}
+                    <div class="flex justify-between text-sm">
+                        <span class="text-slate-500">
+                            Discount Amount:
+                        </span>
+
+                        <span
+                            x-text="'৳' + discountAmount.toFixed(2)"
+                            class="text-slate-600"
+                        ></span>
+                    </div>
+
+                    {{-- Grand Total --}}
                     <div class="flex justify-between font-bold text-base border-t pt-2">
                         <span>
                             Total:
@@ -371,7 +415,7 @@
 <script>
 function soForm() {
     return {
-      productData: @json($products->values()),
+        productData: @json($products->values()),
 
         items: [
             {
@@ -388,7 +432,10 @@ function soForm() {
 
         tax: 0,
         discount: 0,
+
         subtotal: 0,
+        taxAmount: 0,
+        discountAmount: 0,
         grandTotal: 0,
 
         addItem() {
@@ -417,20 +464,25 @@ function soForm() {
             const item = this.items[index];
 
             const product = this.productData.find(
-                product => String(product.id) === String(item.product_id)
+                product =>
+                    String(product.id) === String(item.product_id)
             );
 
             if (!product) {
                 item.item_name = '';
                 item.unit = '';
                 item.unit_price = 0;
+
                 this.calcTotal(index);
+
                 return;
             }
 
             item.item_name = product.name || '';
             item.unit = product.unit || '';
-            item.unit_price = parseFloat(product.sale_price || 0);
+            item.unit_price = parseFloat(
+                product.sale_price || 0
+            );
 
             this.calcTotal(index);
         },
@@ -440,22 +492,58 @@ function soForm() {
 
             item.total =
                 parseFloat(item.quantity || 0)
-                * parseFloat(item.unit_price || 0);
+                *
+                parseFloat(item.unit_price || 0);
 
             this.calcGrandTotal();
         },
 
         calcGrandTotal() {
+            /*
+             * Calculate subtotal from line totals.
+             */
             this.subtotal = this.items.reduce(
                 (sum, item) =>
                     sum + parseFloat(item.total || 0),
                 0
             );
 
+            /*
+             * Tax and discount are percentages.
+             *
+             * Example:
+             * subtotal = 75,000
+             * tax = 10%       => 7,500
+             * discount = 5%   => 3,750
+             */
+            this.taxAmount =
+                this.subtotal
+                *
+                (
+                    parseFloat(this.tax || 0)
+                    / 100
+                );
+
+            this.discountAmount =
+                this.subtotal
+                *
+                (
+                    parseFloat(this.discount || 0)
+                    / 100
+                );
+
             this.grandTotal =
                 this.subtotal
-                + parseFloat(this.tax || 0)
-                - parseFloat(this.discount || 0);
+                + this.taxAmount
+                - this.discountAmount;
+
+            /*
+             * Do not allow the displayed total to become negative.
+             * Backend validation remains authoritative.
+             */
+            if (this.grandTotal < 0) {
+                this.grandTotal = 0;
+            }
         }
     };
 }

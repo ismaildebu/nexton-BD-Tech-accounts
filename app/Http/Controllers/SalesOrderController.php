@@ -10,10 +10,13 @@ use App\Models\SalesOrderItem;
 use App\Models\Warehouse;
 use App\Services\PlanLimitService;
 use App\Services\SalesOrderAccountingService;
+use App\Support\AmountInWords;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+
 
 class SalesOrderController extends Controller
 {
@@ -101,9 +104,14 @@ class SalesOrderController extends Controller
                 'after_or_equal:order_date',
             ],
 
-            'tax' => 'nullable|numeric|min:0',
+            /*
+             * Tax and discount are entered as percentages.
+             * The calculated monetary amounts are stored in the
+             * existing tax and discount database columns.
+             */
+            'tax' => 'nullable|numeric|min:0|max:100',
 
-            'discount' => 'nullable|numeric|min:0',
+            'discount' => 'nullable|numeric|min:0|max:100',
 
             'notes' => 'nullable|string',
 
@@ -176,14 +184,46 @@ class SalesOrderController extends Controller
                 );
             }
 
-            $tax = $this->toDecimal($validated['tax'] ?? 0);
-            $discount = $this->toDecimal($validated['discount'] ?? 0);
+            /*
+             * Tax and discount are percentages.
+             *
+             * Example:
+             * subtotal = 75,000
+             * tax = 10%       => 7,500
+             * discount = 5%   => 3,750
+             */
+            $taxPercent = $this->toDecimal($validated['tax'] ?? 0);
+            $discountPercent = $this->toDecimal(
+                $validated['discount'] ?? 0
+            );
+
+            $tax = bcdiv(
+                bcmul($subtotal, $taxPercent, 8),
+                '100',
+                4
+            );
+
+            $discount = bcdiv(
+                bcmul($subtotal, $discountPercent, 8),
+                '100',
+                4
+            );
 
             $total = bcsub(
                 bcadd($subtotal, $tax, 4),
                 $discount,
                 4
             );
+
+            /*
+             * Prevent invalid negative Sales Order totals.
+             */
+            if (bccomp($total, '0', 4) < 0) {
+                throw ValidationException::withMessages([
+                    'discount' => 'Discount cannot be greater than '
+                        . 'the order subtotal plus tax.',
+                ]);
+            }
 
             $order = SalesOrder::create([
                 'company_id' => $company_id,
@@ -221,9 +261,10 @@ class SalesOrderController extends Controller
 
             /*
              * Re-calculate the totals from the values that were actually
-             * stored (database columns may round long decimals). The
-             * accounting service uses the stored values, so the order
-             * total must be derived from them too.
+             * stored. Database columns may round long decimals.
+             *
+             * The accounting service uses stored values, so the order
+             * total must be derived from the stored item values too.
              */
             $order->refresh();
 
@@ -243,13 +284,37 @@ class SalesOrderController extends Controller
                 );
             }
 
+            /*
+             * Recalculate tax and discount from the stored subtotal
+             * using the original percentage inputs.
+             */
+            $storedTax = bcdiv(
+                bcmul(
+                    $storedSubtotal,
+                    $taxPercent,
+                    8
+                ),
+                '100',
+                4
+            );
+
+            $storedDiscount = bcdiv(
+                bcmul(
+                    $storedSubtotal,
+                    $discountPercent,
+                    8
+                ),
+                '100',
+                4
+            );
+
             $storedTotal = bcsub(
                 bcadd(
                     $storedSubtotal,
-                    $this->toDecimal($order->tax),
+                    $storedTax,
                     4
                 ),
-                $this->toDecimal($order->discount),
+                $storedDiscount,
                 4
             );
 
@@ -259,13 +324,21 @@ class SalesOrderController extends Controller
              */
             if (bccomp($storedTotal, '0', 4) < 0) {
                 throw ValidationException::withMessages([
-                    'discount' => 'Discount cannot be greater than the '
-                        . 'order subtotal plus tax.',
+                    'discount' => 'Discount cannot be greater than '
+                        . 'the order subtotal plus tax.',
                 ]);
             }
 
+            /*
+             * Store the final monetary amounts.
+             *
+             * tax and discount columns contain calculated amounts,
+             * not percentages.
+             */
             $order->update([
                 'subtotal' => $storedSubtotal,
+                'tax' => $storedTax,
+                'discount' => $storedDiscount,
                 'total' => $storedTotal,
             ]);
 
@@ -302,7 +375,10 @@ class SalesOrderController extends Controller
         $newStatus = $validated['status'];
 
         try {
-            DB::transaction(function () use ($salesOrder, $newStatus): void {
+            DB::transaction(function () use (
+                $salesOrder,
+                $newStatus
+            ): void {
                 /*
                  * Lock the order and re-read its status so a stale model
                  * or a concurrent request cannot bypass the transition rules.
@@ -320,7 +396,8 @@ class SalesOrderController extends Controller
                     );
                 }
 
-                $allowed = self::ALLOWED_STATUS_TRANSITIONS[$oldStatus] ?? [];
+                $allowed = self::ALLOWED_STATUS_TRANSITIONS[$oldStatus]
+                    ?? [];
 
                 if (! in_array($newStatus, $allowed, true)) {
                     throw new \RuntimeException(
@@ -392,7 +469,11 @@ class SalesOrderController extends Controller
             ->orderByDesc('id')
             ->value('so_number');
 
-        $sequence = preg_match('/(\d+)$/', (string) $lastNumber, $matches) === 1
+        $sequence = preg_match(
+            '/(\d+)$/',
+            (string) $lastNumber,
+            $matches
+        ) === 1
             ? (int) $matches[1]
             : 0;
 
@@ -414,6 +495,36 @@ class SalesOrderController extends Controller
 
         return $soNumber;
     }
+
+    public function pdf(SalesOrder $salesOrder)
+        {
+            abort_unless(
+                (int) $salesOrder->company_id === (int) session('company_id'),
+                404
+            );
+
+            $salesOrder->load([
+                'customer',
+                'warehouse',
+                'items.product',
+            ]);
+
+            $amountInWords = AmountInWords::taka(
+                (string) $salesOrder->total,
+                'en'
+            );
+
+            $pdf = Pdf::loadView('sales-orders.pdf', [
+                'salesOrder' => $salesOrder,
+                'amountInWords' => $amountInWords,
+            ]);
+
+            $pdf->setPaper('a4', 'portrait');
+
+            return $pdf->download(
+                $salesOrder->so_number . '.pdf'
+            );
+        }
 
     /**
      * Normalize a request/database value into a plain decimal string

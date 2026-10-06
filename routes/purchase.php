@@ -12,7 +12,7 @@ Route::middleware(['auth', 'verified', 'company'])->group(function (): void {
 
     Route::post('/vendors/bulk-store', [VendorController::class, 'bulkStore'])
         ->name('vendors.bulk-store');
-    
+
     Route::resource('vendors', VendorController::class)
         ->middlewareFor(['index', 'show'], 'can-permission:vendors.view')
         ->middlewareFor(['create', 'store'], 'can-permission:vendors.create')
@@ -23,13 +23,21 @@ Route::middleware(['auth', 'verified', 'company'])->group(function (): void {
         ->middlewareFor(['index', 'show'], 'can-permission:purchase-orders.view')
         ->middlewareFor(['create', 'store'], 'can-permission:purchase-orders.create')
         ->middlewareFor('destroy', 'can-permission:purchase-orders.delete');
+
+    Route::get('purchase-orders/{purchaseOrder}/pdf', [PurchaseOrderController::class, 'pdf'])
+        ->middleware('can-permission:purchase-orders.view')
+        ->name('purchase-orders.pdf');
+
     Route::post('purchase-orders/{purchaseOrder}/status', [PurchaseOrderController::class, 'updateStatus'])
-        ->middleware('can-permission:purchase-orders.edit')->name('purchase-orders.status');
+        ->middleware('can-permission:purchase-orders.edit')
+        ->name('purchase-orders.status');
 
     Route::resource('purchase-bills', PurchaseBillController::class)->except(['edit', 'update'])
         ->middlewareFor(['index', 'show'], 'can-permission:purchase-bills.view')
         ->middlewareFor(['create', 'store'], 'can-permission:purchase-bills.create')
         ->middlewareFor('destroy', 'can-permission:purchase-bills.delete');
+
     Route::post('purchase-bills/{purchaseBill}/payment', [PurchaseBillController::class, 'addPayment'])
-        ->middleware('can-permission:purchase-bills.edit')->name('purchase-bills.payment');
+        ->middleware('can-permission:purchase-bills.edit')
+        ->name('purchase-bills.payment');
 });

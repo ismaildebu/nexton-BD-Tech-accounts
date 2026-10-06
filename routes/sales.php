@@ -26,8 +26,14 @@ Route::resource('customers', CustomerController::class)
             ->middlewareFor(['index', 'show'], 'can-permission:sales-orders.view')
             ->middlewareFor(['create', 'store'], 'can-permission:sales-orders.create')
             ->middlewareFor('destroy', 'can-permission:sales-orders.delete');
+
+        Route::get('sales-orders/{salesOrder}/pdf', [SalesOrderController::class, 'pdf'])
+            ->middleware('can-permission:sales-orders.view')
+            ->name('sales-orders.pdf');
+
         Route::post('sales-orders/{salesOrder}/status', [SalesOrderController::class, 'updateStatus'])
-            ->middleware('can-permission:sales-orders.edit')->name('sales-orders.status');
+            ->middleware('can-permission:sales-orders.edit')
+            ->name('sales-orders.status');
     });
 
     Route::resource('invoices', InvoiceController::class)

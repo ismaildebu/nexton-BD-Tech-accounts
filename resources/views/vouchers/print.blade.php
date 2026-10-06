@@ -178,7 +178,7 @@
                 </tr>
             </tfoot>
         </table>
-        <p><strong>Amount in words:</strong> {{ \App\Support\AmountInWords::taka($transaction->total_debit) }}</p>
+         <p><strong>Amount in words:</strong> {{ \App\Support\AmountInWords::taka($transaction->total_debit) }}</p>
 
         {{-- ============================================================ --}}
         {{-- SIGNATURE AREA --}}
