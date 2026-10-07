@@ -22,6 +22,15 @@ return Application::configure(basePath: dirname(__DIR__))
             'super-admin' => \App\Http\Middleware\SuperAdminMiddleware::class,
         ]);
 
+        // Payment gateway callbacks cannot carry a CSRF token. They are
+        // protected by server-side validation against the gateway instead.
+        $middleware->validateCsrfTokens(except: [
+            'webhooks/payment/sslcommerz/ipn',
+            'customer/payment/sslcommerz/success',
+            'customer/payment/sslcommerz/fail',
+            'customer/payment/sslcommerz/cancel',
+        ]);
+
         $middleware->web(append: [
             \App\Http\Middleware\SetActiveCompany::class,
             \App\Http\Middleware\SetCompanyContext::class,

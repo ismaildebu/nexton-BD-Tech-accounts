@@ -37,6 +37,41 @@ final class SSLCommerzPaymentService
 
 
 
+    /**
+     * Create a gateway session.
+     *
+     * The gateway answers with JSON (sessionkey + GatewayPageURL). The old
+     * "sessionkey=..." text format is still accepted as a fallback.
+     *
+     * @return array{0: string, 1: string} [sessionKey, redirectUrl]
+     */
+    private function createSession(array $paymentData): array
+    {
+        $response = Http::asForm()->timeout(15)->post($this->apiUrl, $paymentData)->throw();
+        $json = $response->json();
+
+        $sessionKey = is_array($json) ? (string) ($json['sessionkey'] ?? '') : '';
+
+        if ($sessionKey === '' && preg_match('/sessionkey=([a-zA-Z0-9]+)/', $response->body(), $m) === 1) {
+            $sessionKey = $m[1];
+        }
+
+        if ($sessionKey === '') {
+            throw new RuntimeException('Invalid response from SSLCommerz.');
+        }
+
+        $fallback = ($this->sandboxMode
+            ? 'https://sandbox.sslcommerz.com'
+            : 'https://securepay.sslcommerz.com') . "/customer/pay/{$sessionKey}";
+
+        $gatewayUrl = is_array($json) ? (string) ($json['GatewayPageURL'] ?? '') : '';
+        $host = (string) parse_url($gatewayUrl, PHP_URL_HOST);
+        $trusted = str_starts_with($gatewayUrl, 'https://')
+            && ($host === 'sslcommerz.com' || str_ends_with($host, '.sslcommerz.com'));
+
+        return [$sessionKey, $trusted ? $gatewayUrl : $fallback];
+    }
+
     public function initiateCustomerPayment(
     int $customerId,
     string $amount,
@@ -76,24 +111,10 @@ final class SSLCommerzPaymentService
         'product_profile' => 'service',
     ];
 
-    $response = Http::asForm()
-        ->timeout(15)
-        ->post($this->apiUrl, $paymentData)
-        ->throw()
-        ->body();
-
-    preg_match('/sessionkey=([a-zA-Z0-9]+)/', $response, $matches);
-
-    $sessionKey = $matches[1] ?? null;
-
-    if ($sessionKey === null) {
-        throw new RuntimeException('Invalid response from SSLCommerz.');
-    }
+    [$sessionKey, $redirectUrl] = $this->createSession($paymentData);
 
     return [
-        'redirect_url' => $this->sandboxMode
-            ? "https://sandbox.sslcommerz.com/customer/pay/{$sessionKey}"
-            : "https://securepay.sslcommerz.com/customer/pay/{$sessionKey}",
+        'redirect_url' => $redirectUrl,
         'sessionId' => $sessionKey,
         'transaction_id' => $transactionId,
         'external_data' => $externalData,
@@ -133,13 +154,7 @@ final class SSLCommerzPaymentService
             'product_profile' => 'service',
         ];
 
-        $response = Http::asForm()->timeout(15)->post($this->apiUrl, $paymentData)->throw()->body();
-        preg_match('/sessionkey=([a-zA-Z0-9]+)/', $response, $matches);
-        $sessionKey = $matches[1] ?? null;
-
-        if ($sessionKey === null) {
-            throw new RuntimeException('Invalid response from SSLCommerz.');
-        }
+        [$sessionKey, $redirectUrl] = $this->createSession($paymentData);
 
         $subscription = Subscription::query()->findOrFail($subscriptionId);
         $subscription->update([
@@ -149,9 +164,7 @@ final class SSLCommerzPaymentService
             ]),
         ]);
 
-        return $this->sandboxMode
-            ? "https://sandbox.sslcommerz.com/customer/pay/{$sessionKey}"
-            : "https://securepay.sslcommerz.com/customer/pay/{$sessionKey}";
+        return $redirectUrl;
     }
 
     /** Verify the callback against SSLCommerz, never against the callback alone. */
@@ -174,7 +187,8 @@ final class SSLCommerzPaymentService
             return false;
         }
 
-        if (($remote['status'] ?? null) !== 'VALID') {
+        // VALID = first validation, VALIDATED = already validated before (retry-safe).
+        if (!in_array($remote['status'] ?? null, ['VALID', 'VALIDATED'], true)) {
             return false;
         }
 

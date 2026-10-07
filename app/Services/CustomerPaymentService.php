@@ -296,6 +296,70 @@ class CustomerPaymentService
     }
 
     /**
+     * Confirm an SSLCommerz payment from a gateway callback (IPN).
+     *
+     * SECURITY: the callback body is NOT trusted. The payment is resolved from
+     * OUR transaction id (no session / company from the caller), and the
+     * gateway's own validation API must confirm val_id, tran_id, currency and
+     * amount before anything is posted. Idempotent: a duplicate IPN for an
+     * already received/verified payment changes nothing.
+     *
+     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException unknown tran_id
+     * @throws \DomainException callback invalid / not confirmable
+     */
+    public function confirmSslcommerzPayment(
+        array $callback,
+        SSLCommerzPaymentService $gateway
+    ): CustomerPayment {
+        $tranId = trim((string) ($callback['tran_id'] ?? ''));
+        $valId = trim((string) ($callback['val_id'] ?? ''));
+
+        if ($tranId === '' || $valId === '') {
+            throw new \DomainException('Missing gateway reference.');
+        }
+
+        $payment = CustomerPayment::query()
+            ->where('payment_method', 'sslcommerz')
+            ->where('transaction_reference', $tranId)
+            ->firstOrFail();
+
+        if (in_array($payment->status, ['received', 'verified'], true)) {
+            return $payment; // duplicate IPN
+        }
+
+        if ($payment->status !== 'pending') {
+            throw new \DomainException(
+                "Payment cannot be confirmed from status: {$payment->status}"
+            );
+        }
+
+        // Remote HTTP call is deliberately made outside any DB transaction/lock.
+        $expectedAmount = bcadd((string) $payment->amount, '0', 2);
+
+        if (!$gateway->verifyPayment($callback, $expectedAmount, 'BDT')) {
+            throw new \DomainException('Gateway validation failed.');
+        }
+
+        return DB::transaction(function () use ($payment, $callback, $valId) {
+            $locked = CustomerPayment::query()
+                ->lockForUpdate()
+                ->findOrFail($payment->id);
+
+            $locked->update([
+                'metadata' => array_merge($locked->metadata ?? [], [
+                    'val_id' => $valId,
+                    'bank_tran_id' => $callback['bank_tran_id'] ?? null,
+                    'card_type' => $callback['card_type'] ?? null,
+                    'confirmed_via' => 'sslcommerz_ipn',
+                    'confirmed_at' => now()->toIso8601String(),
+                ]),
+            ]);
+
+            return $this->markAsReceived($locked);
+        });
+    }
+
+    /**
      * Payment mark as received.
      *
      * Actual gateway/manual confirmation হলে এই method ব্যবহার হবে।

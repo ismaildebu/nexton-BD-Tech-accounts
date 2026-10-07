@@ -6,6 +6,8 @@ use App\Models\Company;
 use App\Models\Customer;
 use App\Models\CustomerPayment;
 use App\Services\CustomerPaymentService;
+use App\Services\SSLCommerzPaymentService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -55,7 +57,7 @@ class CustomerPaymentController extends Controller
             ->firstOrFail();
 
         $validated = $request->validate([
-            'amount' => 'required|numeric|min:0.01',
+            'amount' => 'required|numeric|min:0.01|decimal:0,2',
             'payment_method' => 'required|in:bkash,sslcommerz,bank_transfer',
         ]);
 
@@ -105,20 +107,21 @@ class CustomerPaymentController extends Controller
 
     /**
      * SSLCommerz payment initiate করা
+     *
+     * Our gateway transaction id (tran_id) is stored in transaction_reference.
+     * The IPN resolves the payment from it, never from a session.
      */
     private function initiateSslcommerzPayment(
         CustomerPayment $payment
     ) {
         $this->assertPaymentCompany($payment);
 
-        $sslService = app(
-            \App\Services\SSLCommerzPaymentService::class
-        );
-
         try {
+            $sslService = app(SSLCommerzPaymentService::class);
+
             $response = $sslService->initiateCustomerPayment(
                 customerId: $payment->customer_id,
-                amount: $payment->amount,
+                amount: bcadd((string) $payment->amount, '0', 2),
                 description: "Payment - {$payment->reference_id}",
                 successUrl: route('customer-payment.sslcommerz.success'),
                 failUrl: route('customer-payment.sslcommerz.fail'),
@@ -131,7 +134,11 @@ class CustomerPaymentController extends Controller
             );
 
             $payment->update([
-                'metadata' => $response,
+                'transaction_reference' => $response['transaction_id'],
+                'metadata' => array_merge($payment->metadata ?? [], [
+                    'gateway' => 'sslcommerz',
+                    'session_id' => $response['sessionId'] ?? null,
+                ]),
             ]);
 
             return response()->json([
@@ -144,7 +151,7 @@ class CustomerPaymentController extends Controller
         } catch (\Throwable $e) {
             $payment->update([
                 'status' => 'failed',
-                'notes' => $e->getMessage(),
+                'notes' => 'SSLCommerz initiation failed.',
             ]);
 
             Log::error('SSLCommerz payment initiation failed.', [
@@ -153,7 +160,7 @@ class CustomerPaymentController extends Controller
             ]);
 
             return response()->json([
-                'error' => $e->getMessage(),
+                'error' => 'Could not start the online payment. Please try again.',
             ], 422);
         }
     }
@@ -258,130 +265,104 @@ class CustomerPaymentController extends Controller
     }
 
     /**
-     * SSLCommerz success callback
+     * SSLCommerz success redirect (browser GET or POST).
      *
-     * Browser redirect is not treated as payment confirmation.
-     * IPN/webhook confirms the payment.
+     * This is NOT a payment confirmation; only the validated IPN confirms.
+     * It resolves the payment from our tran_id and sends the browser to the
+     * normal (session-protected) success page.
      */
     public function sslcommerzSuccess(Request $request)
     {
-        $paymentId = $request->query('payment_id');
+        $tranId = trim((string) $request->input('tran_id'));
 
-        if (!$paymentId) {
+        if ($tranId === '') {
             return view('customer.payment.error', [
                 'message' => 'Payment reference is missing.',
             ]);
         }
 
         $payment = CustomerPayment::query()
-            ->where('id', $paymentId)
-            ->where('company_id', $this->companyId())
+            ->where('payment_method', 'sslcommerz')
+            ->where('transaction_reference', $tranId)
             ->firstOrFail();
 
-        return view('customer.payment.success', [
-            'payment' => $payment,
-            'message' => in_array(
-                $payment->status,
-                ['received', 'verified'],
-                true
-            )
-                ? 'Payment received successfully. Voucher has been created.'
-                : 'Payment confirmation is pending.',
+        return redirect()->route('customer-payment.success', $payment->id);
+    }
+
+    public function sslcommerzFail(Request $request)
+    {
+        return view('customer.payment.error', [
+            'message' => 'SSLCommerz payment failed.',
         ]);
     }
 
-
-    public function sslcommerzFail(Request $request)
-{
-    return view('customer.payment.error', [
-        'message' => 'SSLCommerz payment failed.',
-    ]);
-}
-
-public function sslcommerzCancel(Request $request)
-{
-    return view('customer.payment.error', [
-        'message' => 'SSLCommerz payment was cancelled.',
-    ]);
-}
+    public function sslcommerzCancel(Request $request)
+    {
+        return view('customer.payment.error', [
+            'message' => 'SSLCommerz payment was cancelled.',
+        ]);
+    }
 
     /**
-     * SSLCommerz IPN webhook
+     * SSLCommerz IPN webhook (server-to-server, no session, no auth).
      *
-     * VALID = actual gateway confirmation.
+     * - Only success notifications are processed, and only after the
+     *   gateway's validation API confirms them (see
+     *   CustomerPaymentService::confirmSslcommerzPayment()).
+     * - FAILED/CANCELLED notifications are acknowledged but never change
+     *   state: the customer may retry inside the same gateway session and
+     *   succeed later, and an unauthenticated call must not be able to
+     *   fail a payment.
      */
     public function ipnWebhook(Request $request)
     {
-        $paymentId = $request->input('payment_id');
-        $transactionReference = $request->input('val_id');
-        $status = strtoupper(
-            (string) $request->input('status')
-        );
+        $tranId = trim((string) $request->input('tran_id'));
+        $valId = trim((string) $request->input('val_id'));
+        $status = strtoupper((string) $request->input('status'));
 
-        $paymentQuery = CustomerPayment::query()
-            ->where('company_id', $this->companyId());
-
-        if ($paymentId) {
-            $paymentQuery->where('id', $paymentId);
-        } elseif ($transactionReference) {
-            $paymentQuery->where(
-                'transaction_reference',
-                $transactionReference
-            );
-        } else {
-            return response()->json([
-                'error' => 'Payment reference not found.',
-            ], 400);
+        if ($tranId === '') {
+            return response()->json(['error' => 'Payment reference not found.'], 400);
         }
 
-        $payment = $paymentQuery->first();
+        if (!in_array($status, ['VALID', 'VALIDATED'], true) || $valId === '') {
+            Log::info('SSLCommerz IPN ignored (non-success notification).', [
+                'tran_id' => $tranId,
+                'status' => $status,
+            ]);
 
-        if (!$payment) {
-            return response()->json([
-                'error' => 'Payment not found.',
-            ], 404);
+            return response()->json(['success' => false, 'ignored' => true]);
         }
 
         try {
-            if ($status === 'VALID') {
-                $payment->update([
-                    'transaction_reference' => $transactionReference
-                        ?: $payment->transaction_reference,
-                ]);
-
-                /*
-                 * Actual payment confirmation.
-                 *
-                 * markAsReceived() handles:
-                 * - payment status
-                 * - receipt voucher creation
-                 * - duplicate protection
-                 */
-                $this->paymentService->markAsReceived($payment);
-
-                return response()->json([
-                    'success' => true,
-                ]);
-            }
-
-            $this->paymentService->rejectPayment(
-                $payment,
-                'SSLCommerz validation failed'
+            $this->paymentService->confirmSslcommerzPayment(
+                $request->only([
+                    'tran_id',
+                    'val_id',
+                    'status',
+                    'bank_tran_id',
+                    'card_type',
+                ]),
+                app(SSLCommerzPaymentService::class)
             );
 
-            return response()->json([
-                'success' => false,
+            return response()->json(['success' => true]);
+        } catch (ModelNotFoundException) {
+            return response()->json(['error' => 'Payment not found.'], 404);
+        } catch (\DomainException $e) {
+            Log::warning('SSLCommerz IPN rejected.', [
+                'tran_id' => $tranId,
+                'reason' => $e->getMessage(),
             ]);
+
+            return response()->json(['error' => 'Payment could not be confirmed.'], 422);
         } catch (\Throwable $e) {
             Log::error('SSLCommerz IPN processing failed.', [
-                'payment_id' => $payment->id,
-                'status' => $status,
+                'tran_id' => $tranId,
                 'error' => $e->getMessage(),
             ]);
 
-            return response()->json([
-                'error' => $e->getMessage(),
-            ], 422);
+            // 5xx so the gateway retries later.
+            return response()->json(['error' => 'Temporary processing error.'], 500);
         }
     }
 
