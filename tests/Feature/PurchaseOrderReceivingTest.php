@@ -3,6 +3,7 @@
 use App\Http\Controllers\PurchaseOrderController;
 use App\Models\Account;
 use App\Models\Company;
+use App\Models\FinancialYear;
 use App\Models\Product;
 use App\Models\ProductStock;
 use App\Models\PurchaseOrder;
@@ -10,6 +11,7 @@ use App\Models\StockMovement;
 use App\Models\User;
 use App\Models\Vendor;
 use App\Models\Warehouse;
+use App\Services\CompanyAccountingDefaults;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -40,6 +42,34 @@ beforeEach(function () {
         'location' => 'Test Location',
     ]);
 
+    /*
+     * Receiving a Purchase Order now also posts accounting
+     * (Dr Inventory / Cr Purchase Clearing), so the company needs its
+     * default accounts + PUV voucher type, an open financial year and an
+     * inventory account on every product that is received.
+     */
+    app(CompanyAccountingDefaults::class)->ensure($this->company);
+
+    FinancialYear::create([
+        'company_id' => $this->company->id,
+        'year_name' => now()->year . '-' . (now()->year + 1),
+        'start_date' => now()->startOfYear()->toDateString(),
+        'end_date' => now()->endOfYear()->toDateString(),
+        'is_active' => true,
+        'is_closed' => false,
+    ]);
+
+    $this->inventoryAccount = Account::create([
+        'company_id' => $this->company->id,
+        'account_code' => '1004',
+        'account_name' => 'Inventory',
+        'account_type' => 'Asset',
+        'nature' => 'Inventory',
+        'balance_type' => 'Debit',
+        'opening_balance' => 0,
+        'is_active' => true,
+    ]);
+
     $makeProduct = function (string $name, int $companyId): Product {
         return Product::create([
             'company_id' => $companyId,
@@ -51,6 +81,9 @@ beforeEach(function () {
             'sale_price' => 0,
             'reorder_level' => 1,
             'is_active' => true,
+            'inventory_account_id' => $companyId === $this->company->id
+                ? $this->inventoryAccount->id
+                : null,
         ]);
     };
 

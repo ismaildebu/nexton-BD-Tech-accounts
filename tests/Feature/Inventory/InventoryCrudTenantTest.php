@@ -287,6 +287,8 @@ it('blocks deleting a product used by a stock-deducted sales order', function ()
         'total' => 100,
     ]);
 
+    session(['company_id' => $company->id]);
+
     $controller = app(InventoryController::class);
 
     $response = $controller->destroyProduct($product);
@@ -329,6 +331,8 @@ it('blocks deleting a warehouse used by a stock-deducted sales order', function 
         'is_accounted' => false,
         'is_stock_deducted' => true,
     ]);
+
+    session(['company_id' => $company->id]);
 
     $controller = app(InventoryController::class);
 

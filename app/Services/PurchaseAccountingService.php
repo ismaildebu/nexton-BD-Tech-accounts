@@ -225,6 +225,25 @@ class PurchaseAccountingService
                  * Cash / Bank / Customer accounts are explicitly excluded
                  * from purchase debits.
                  */
+                /*
+                 * Automatic standalone Purchase Bill accounting supports the
+                 * item value only. Tax and discount need a dedicated account
+                 * and therefore must be zero.
+                 */
+                if (bccomp((string) ($bill->tax ?? '0'), '0', 4) !== 0) {
+                    throw new RuntimeException(
+                        "Purchase Bill #{$bill->bill_number} tax cannot be posted "
+                        . 'automatically until a tax account is configured.'
+                    );
+                }
+
+                if (bccomp((string) ($bill->discount ?? '0'), '0', 4) !== 0) {
+                    throw new RuntimeException(
+                        "Purchase Bill #{$bill->bill_number} discount cannot be posted "
+                        . 'automatically until a discount account is configured.'
+                    );
+                }
+
                 $items = $bill->items()
                     ->orderBy('id')
                     ->get();
@@ -249,6 +268,22 @@ class PurchaseAccountingService
                         );
                     }
 
+                    /*
+                     * A purchase can only be debited to an Expense or an
+                     * Asset account. Liability, Equity and Income accounts
+                     * are never valid purchase debits.
+                     */
+                    if (! in_array(
+                        $account->account_type,
+                        [Account::TYPE_EXPENSE, Account::TYPE_ASSET],
+                        true
+                    )) {
+                        throw new RuntimeException(
+                            "Purchase Bill item account #{$account->id} "
+                            . 'must be an Expense or Asset account.'
+                        );
+                    }
+
                     if (
                         $account->account_type === 'Asset'
                         && in_array(
@@ -259,7 +294,8 @@ class PurchaseAccountingService
                     ) {
                         throw new RuntimeException(
                             "Purchase Bill item account #{$account->id} "
-                            . 'cannot be used as a purchase debit account.'
+                            . 'cannot receive purchases: Cash, Bank and Customer '
+                            . 'accounts cannot be used as a purchase debit account.'
                         );
                     }
 

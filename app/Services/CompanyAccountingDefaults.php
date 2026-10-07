@@ -20,6 +20,8 @@ use Illuminate\Support\Facades\DB;
  *   - Sales Revenue (Income)    used by Sales Orders
  *   - VAT Payable   (Liability) used by Sales Orders with tax
  *   - Sales Discount (Expense)  used by Sales Orders with discount
+ *   - Purchase Clearing (Liability) credited when a Purchase Order is
+ *                               received, debited by its Purchase Bill
  *
  * Voucher types (found by code):
  *   - SV  Sales Voucher        (Sales Orders)
@@ -45,8 +47,7 @@ final class CompanyAccountingDefaults
             'balance_type' => 'Credit',
             'start' => 5001,
         ],
-
-         [
+        [
             'name' => 'Purchase Clearing',
             'type' => 'Liability',
             'nature' => 'General',
@@ -67,8 +68,6 @@ final class CompanyAccountingDefaults
             'balance_type' => 'Debit',
             'start' => 2121,
         ],
-
-       
     ];
 
     private const REQUIRED_VOUCHER_TYPES = [

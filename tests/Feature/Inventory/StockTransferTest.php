@@ -353,6 +353,7 @@ it('creates destination stock with the correct company context during transfer',
     $user = \App\Models\User::factory()->create([
         'company_id' => $company->id,
     ]);
+    $user->givePermissionTo('stock.transfer');
 
     session(['company_id' => $company->id]);
 
@@ -484,6 +485,7 @@ it('reverses only the transfer company stock when deleting a transfer', function
     $userB = \App\Models\User::factory()->create([
         'company_id' => $companyB->id,
     ]);
+    $userB->givePermissionTo('stock.transfer');
 
     session(['company_id' => $companyB->id]);
 

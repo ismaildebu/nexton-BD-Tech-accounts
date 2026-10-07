@@ -41,6 +41,7 @@ describe('CompanyAccountingDefaults', function () {
         $this->defaults->ensure($this->company);
 
         expect(($this->accountNames)($this->company->id))->toBe([
+            'Purchase Clearing',
             'Sales Discount',
             'Sales Revenue',
             'VAT Payable',
@@ -55,7 +56,7 @@ describe('CompanyAccountingDefaults', function () {
         $this->defaults->ensure($this->company);
         $this->defaults->ensure($this->company);
 
-        expect(($this->accountNames)($this->company->id))->toHaveCount(3);
+        expect(($this->accountNames)($this->company->id))->toHaveCount(4);
         expect(($this->voucherCodes)($this->company->id))->toHaveCount(7);
     });
 
