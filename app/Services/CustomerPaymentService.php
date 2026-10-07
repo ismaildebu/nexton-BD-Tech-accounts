@@ -231,44 +231,12 @@ class CustomerPaymentService
             }
 
             /*
-             * Invoice-based payment থাকলে existing invoice
-             * verification logic preserve করা হচ্ছে।
-             *
-             * Customer Code based payment-এর invoice_id হবে null,
-             * তাই এই block execute হবে না।
+             * Invoice-based payment: apply it to the invoice exactly once.
+             * (A merchant bKash payment has already applied itself when it
+             * was received, so this is then a no-op instead of a second
+             * increase of paid_amount.)
              */
-            if ($payment->invoice_id !== null) {
-                $invoice = Invoice::query()
-                    ->where('company_id', $payment->company_id)
-                    ->lockForUpdate()
-                    ->findOrFail($payment->invoice_id);
-
-                if ($invoice->customer_id !== $payment->customer_id) {
-                    throw new \RuntimeException(
-                        'Payment customer does not match the invoice customer.'
-                    );
-                }
-
-                $outstandingAmount =
-                    $invoice->total_amount - $invoice->paid_amount;
-
-                if ($payment->amount > $outstandingAmount) {
-                    throw new \RuntimeException(
-                        'Payment amount exceeds the invoice outstanding amount.'
-                    );
-                }
-
-                $newPaidAmount =
-                    $invoice->paid_amount + $payment->amount;
-
-                $invoice->update([
-                    'paid_amount' => $newPaidAmount,
-                    'status' => $newPaidAmount >= $invoice->total_amount
-                        ? 'paid'
-                        : 'partial',
-                    'paid_at' => now(),
-                ]);
-            }
+            $this->applyPaymentToInvoice($payment);
 
             /*
              * Payment confirmation complete.
@@ -293,6 +261,71 @@ class CustomerPaymentService
 
             return $payment;
         });
+    }
+
+    /**
+     * Apply a payment to its invoice (paid_amount + status), exactly once.
+     *
+     * Must run inside a DB transaction (the invoice row is locked).
+     * Idempotent: the first application is recorded in
+     * metadata.invoice_applied_at and any later call does nothing, so
+     * every route that confirms a payment (merchant bKash callback, admin
+     * verification) can call it without double counting.
+     *
+     * @throws \RuntimeException customer mismatch or payment above outstanding
+     */
+    public function applyPaymentToInvoice(CustomerPayment $payment): void
+    {
+        if ($payment->invoice_id === null) {
+            return;
+        }
+
+        if (! empty(($payment->metadata ?? [])['invoice_applied_at'])) {
+            return;
+        }
+
+        $invoice = Invoice::query()
+            ->where('company_id', $payment->company_id)
+            ->lockForUpdate()
+            ->findOrFail($payment->invoice_id);
+
+        if ((int) $invoice->customer_id !== (int) $payment->customer_id) {
+            throw new \RuntimeException(
+                'Payment customer does not match the invoice customer.'
+            );
+        }
+
+        $outstanding = bcsub(
+            (string) $invoice->total_amount,
+            (string) $invoice->paid_amount,
+            4
+        );
+
+        if (bccomp((string) $payment->amount, $outstanding, 4) > 0) {
+            throw new \RuntimeException(
+                'Payment amount exceeds the invoice outstanding amount.'
+            );
+        }
+
+        $newPaid = bcadd(
+            (string) $invoice->paid_amount,
+            (string) $payment->amount,
+            4
+        );
+
+        $invoice->update([
+            'paid_amount' => $newPaid,
+            'status' => bccomp($newPaid, (string) $invoice->total_amount, 4) >= 0
+                ? 'paid'
+                : 'partial',
+            'paid_at' => now(),
+        ]);
+
+        $payment->update([
+            'metadata' => array_merge($payment->metadata ?? [], [
+                'invoice_applied_at' => now()->toIso8601String(),
+            ]),
+        ]);
     }
 
     /**

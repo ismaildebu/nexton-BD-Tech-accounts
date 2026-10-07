@@ -10,6 +10,7 @@ use App\Models\Invoice;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Throwable;
 
 class BkashPaymentProcessorService
 {
@@ -96,6 +97,15 @@ class BkashPaymentProcessorService
 
     // ─── Step 3: Execute & Process ───────────────────────────────────────────
 
+    /**
+     * Result codes: success | failed | cancelled | review
+     *
+     * "review" means bKash confirmed the payment (money was taken) but it
+     * could not be recorded locally (or its details do not match). The
+     * bKash payment stays "pending" with the stored execute response, and a
+     * later callback replay retries ONLY the local posting. It never
+     * executes the payment at bKash a second time.
+     */
     private function executePayment(BkashPayment $bkashPayment): string
     {
         /*
@@ -106,13 +116,25 @@ class BkashPaymentProcessorService
             return 'success';
         }
 
-        $executeResponse = $this->bkash->executePayment(
-            $bkashPayment->payment_id
-        );
+        $stored = $bkashPayment->execute_response;
 
-        $bkashPayment->update([
-            'execute_response' => $executeResponse,
-        ]);
+        if (
+            $bkashPayment->status === 'pending'
+            && is_array($stored)
+            && ($stored['statusCode'] ?? '') === '0000'
+            && ! empty($stored['trxID'])
+        ) {
+            // bKash already confirmed it earlier; only the local posting is retried.
+            $executeResponse = $stored;
+        } else {
+            $executeResponse = $this->bkash->executePayment(
+                $bkashPayment->payment_id
+            );
+
+            $bkashPayment->update([
+                'execute_response' => $executeResponse,
+            ]);
+        }
 
         if (($executeResponse['statusCode'] ?? '') !== '0000') {
             $bkashPayment->update([
@@ -142,78 +164,136 @@ class BkashPaymentProcessorService
             return 'failed';
         }
 
-        DB::transaction(function () use ($bkashPayment, $trxId): void {
+        /*
+         * Defence in depth: what bKash confirmed must be what we asked it
+         * to charge. A mismatch is never posted automatically.
+         */
+        if (! $this->confirmationMatches($bkashPayment, $executeResponse)) {
+            $bkashPayment->update(['status' => 'pending']);
 
-            $payment = BkashPayment::query()
-                ->lockForUpdate()
-                ->findOrFail($bkashPayment->id);
-
-            if ($payment->isCompleted()) {
-                return;
-            }
-
-            /*
-             * 1. Mark bKash payment as completed.
-             */
-            $payment->update([
-                'trx_id'  => $trxId,
-                'status'  => 'completed',
-                'paid_at' => now(),
+            Log::critical('bKash confirmation does not match the stored payment.', [
+                'payment_id' => $bkashPayment->payment_id,
+                'trx_id'     => $trxId,
+                'expected'   => (string) $bkashPayment->amount,
+                'response'   => $executeResponse,
             ]);
 
-            /*
-             * 2. Update Invoice paid amount.
-             */
-            $invoice = Invoice::query()
-                ->lockForUpdate()
-                ->findOrFail($payment->invoice_id);
+            return 'review';
+        }
 
-            $invoice->increment(
-                'paid_amount',
-                (float) $payment->amount
-            );
+        try {
+            DB::transaction(function () use ($bkashPayment, $trxId): void {
 
-            /*
-             * 3. Create/reuse CustomerPayment.
-             *
-             * Reference ID = Customer Code.
-             */
-            $customerPayment = CustomerPayment::query()
-                ->where('transaction_reference', $trxId)
-                ->lockForUpdate()
-                ->first();
+                $payment = BkashPayment::query()
+                    ->lockForUpdate()
+                    ->findOrFail($bkashPayment->id);
 
-            if (! $customerPayment) {
-                $customerPayment = CustomerPayment::create([
-                    'company_id'            => $payment->company_id,
-                    'customer_id'           => $payment->customer_id,
-                    'reference_id'          => $payment->customer->customer_code,
-                    'invoice_id'            => $payment->invoice_id,
-                    'amount'                => $payment->amount,
-                    'payment_date'          => $payment->paid_at ?? now(),
-                    'payment_method'        => 'bkash',
-                    'transaction_reference' => $trxId,
-                    'status'                => 'pending',
-                    'metadata'              => [
-                        'source'           => 'bkash_merchant',
-                        'bkash_payment_id' => $payment->id,
-                        'payment_id'       => $payment->payment_id,
-                        'merchant_invoice' => $payment->merchant_invoice_number,
-                    ],
+                if ($payment->isCompleted()) {
+                    return;
+                }
+
+                /*
+                 * 1. Mark bKash payment as completed.
+                 */
+                $payment->update([
+                    'trx_id'  => $trxId,
+                    'status'  => 'completed',
+                    'paid_at' => now(),
                 ]);
-            }
 
-            /*
-             * 4. Mark CustomerPayment as received.
-             *
-             * This automatically creates the Receipt Voucher
-             * through the existing CustomerPayment flow.
-             */
-            $this->customerPaymentService->markAsReceived(
-                $customerPayment->fresh()
-            );
-        });
+                /*
+                 * 2. Create/reuse CustomerPayment.
+                 *
+                 * Reference ID = Customer Code.
+                 */
+                $customerPayment = CustomerPayment::query()
+                    ->where('transaction_reference', $trxId)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $customerPayment) {
+                    $customerPayment = CustomerPayment::create([
+                        'company_id'            => $payment->company_id,
+                        'customer_id'           => $payment->customer_id,
+                        'reference_id'          => $payment->customer->customer_code,
+                        'invoice_id'            => $payment->invoice_id,
+                        'amount'                => $payment->amount,
+                        'payment_date'          => $payment->paid_at ?? now(),
+                        'payment_method'        => 'bkash',
+                        'transaction_reference' => $trxId,
+                        'status'                => 'pending',
+                        'metadata'              => [
+                            'source'           => 'bkash_merchant',
+                            'bkash_payment_id' => $payment->id,
+                            'payment_id'       => $payment->payment_id,
+                            'merchant_invoice' => $payment->merchant_invoice_number,
+                        ],
+                    ]);
+                }
+
+                /*
+                 * 3. Apply the payment to the invoice exactly once.
+                 *
+                 * This is the single place that increases the invoice
+                 * paid_amount. It is recorded on the CustomerPayment, so the
+                 * later admin verification does not add it a second time.
+                 */
+                $this->customerPaymentService->applyPaymentToInvoice(
+                    $customerPayment->fresh()
+                );
+
+                /*
+                 * 4. Mark CustomerPayment as received.
+                 *
+                 * This automatically creates the Receipt Voucher
+                 * through the existing CustomerPayment flow.
+                 */
+                $this->customerPaymentService->markAsReceived(
+                    $customerPayment->fresh()
+                );
+            });
+        } catch (Throwable $e) {
+            // The transaction rolled back, but bKash already took the money.
+            $bkashPayment->update(['status' => 'pending']);
+
+            Log::critical('bKash payment confirmed but could not be recorded.', [
+                'payment_id' => $bkashPayment->payment_id,
+                'trx_id'     => $trxId,
+                'error'      => $e->getMessage(),
+            ]);
+
+            return 'review';
+        }
 
         return 'success';
+    }
+
+    /**
+     * @param  array<string, mixed>  $response
+     */
+    private function confirmationMatches(BkashPayment $bkashPayment, array $response): bool
+    {
+        if (
+            isset($response['transactionStatus'])
+            && $response['transactionStatus'] !== 'Completed'
+        ) {
+            return false;
+        }
+
+        if (
+            isset($response['amount'])
+            && bccomp((string) $response['amount'], (string) $bkashPayment->amount, 2) !== 0
+        ) {
+            return false;
+        }
+
+        if (
+            isset($response['merchantInvoiceNumber'])
+            && $response['merchantInvoiceNumber'] !== $bkashPayment->merchant_invoice_number
+        ) {
+            return false;
+        }
+
+        return true;
     }
 }

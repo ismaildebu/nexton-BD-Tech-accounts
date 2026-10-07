@@ -19,12 +19,19 @@ final class BkashPaymentController extends Controller
 
     public function initiate(Invoice $invoice): JsonResponse
     {
+        // The active company is stored in the "company_id" session key.
+        $companyId = (int) session('company_id');
+
         abort_unless(
-            $invoice->company_id === (int) session('active_company_id'),
+            $companyId > 0 && (int) $invoice->company_id === $companyId,
             403
         );
 
-        abort_if($invoice->due_amount <= 0, 422, 'No outstanding balance.');
+        abort_if(
+            bccomp((string) $invoice->total_amount, (string) $invoice->paid_amount, 2) <= 0,
+            422,
+            'No outstanding balance.'
+        );
 
         $data = $this->processor->initiatePayment($invoice);
 
@@ -42,6 +49,8 @@ final class BkashPaymentController extends Controller
         return match ($result) {
             'success'   => redirect()->route('invoices.index')
                                ->with('success', 'বিকাশ পেমেন্ট সফল! TrxID: ' . $request->get('trxID')),
+            'review'    => redirect()->route('invoices.index')
+                               ->with('warning', 'আপনার বিকাশ পেমেন্ট গ্রহণ করা হয়েছে, কিন্তু রেকর্ড সম্পন্ন হয়নি। অনুগ্রহ করে আবার পেমেন্ট করবেন না, আমরা যাচাই করছি।'),
             'cancelled' => redirect()->route('invoices.index')
                                ->with('warning', 'পেমেন্ট বাতিল করা হয়েছে।'),
             default     => redirect()->route('invoices.index')
