@@ -5,9 +5,11 @@ namespace App\Services;
 use App\Mail\AdminPaymentNotification;
 use App\Mail\PaymentReceivedMail;
 use App\Mail\PaymentVerifiedMail;
+use App\Models\Company;
 use App\Models\Customer;
 use App\Models\CustomerPayment;
 use App\Models\Invoice;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -101,6 +103,80 @@ class CustomerPaymentService
     }
 
     /**
+     * Manual bKash: the customer submits the transaction ID and sender number.
+     *
+     * This is a CLAIM, not a confirmation. Money has not been checked against
+     * the bKash statement yet, so this method must never change the status
+     * and must never create a voucher / touch the ledger. The receipt voucher
+     * is created only when an admin verifies the payment (verifyPayment()).
+     */
+    public function submitManualBkashPayment(
+        CustomerPayment $payment,
+        string $transactionId,
+        string $senderNumber
+    ): CustomerPayment {
+        $transactionId = strtoupper(trim($transactionId));
+
+        try {
+            $payment = DB::transaction(function () use (
+                $payment,
+                $transactionId,
+                $senderNumber
+            ) {
+                $locked = CustomerPayment::query()
+                    ->lockForUpdate()
+                    ->findOrFail($payment->id);
+
+                if ($locked->payment_method !== 'bkash') {
+                    throw new \RuntimeException(
+                        'This payment is not a bKash payment.'
+                    );
+                }
+
+                if ($locked->status !== 'pending' || $locked->voucher_id !== null) {
+                    throw new \RuntimeException(
+                        'Payment details can only be submitted while the payment is pending.'
+                    );
+                }
+
+                $alreadyUsed = CustomerPayment::withTrashed()
+                    ->where('transaction_reference', $transactionId)
+                    ->where('id', '!=', $locked->id)
+                    ->exists();
+
+                if ($alreadyUsed) {
+                    throw new \RuntimeException(
+                        'This bKash transaction ID has already been submitted.'
+                    );
+                }
+
+                $locked->update([
+                    'transaction_reference' => $transactionId,
+                    'metadata' => array_merge($locked->metadata ?? [], [
+                        'sender_number' => $senderNumber,
+                        'receiver_number' => Company::query()
+                            ->whereKey($locked->company_id)
+                            ->value('bkash_number'),
+                        'submitted_at' => now()->toIso8601String(),
+                        'awaiting_verification' => true,
+                    ]),
+                ]);
+
+                return $locked->refresh();
+            });
+        } catch (UniqueConstraintViolationException) {
+            // Concurrent submission of the same ID: the DB unique index won.
+            throw new \RuntimeException(
+                'This bKash transaction ID has already been submitted.'
+            );
+        }
+
+        $this->notifyAdminOfPayment($payment);
+
+        return $payment;
+    }
+
+    /**
      * Payment verify করা।
      *
      * Verification successful হলে:
@@ -138,6 +214,19 @@ class CustomerPaymentService
             if ($payment->amount <= 0) {
                 throw new \RuntimeException(
                     'Payment amount must be greater than zero.'
+                );
+            }
+
+            /*
+             * A manual bKash payment can only be confirmed against a
+             * transaction ID the customer actually submitted.
+             */
+            if (
+                $payment->payment_method === 'bkash'
+                && blank($payment->transaction_reference)
+            ) {
+                throw new \RuntimeException(
+                    'A bKash payment cannot be verified before the transaction ID is submitted.'
                 );
             }
 

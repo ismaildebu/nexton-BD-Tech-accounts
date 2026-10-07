@@ -194,155 +194,289 @@ class PurchaseBillController extends Controller
             );
     }
 
-    public function show(PurchaseBill $purchaseBill)
-    {
-        $purchaseBill->load(
-            'vendor',
-            'items',
-            'payments',
-            'purchaseOrder',
-            'transaction'
-        );
+    
+           public function show(PurchaseBill $purchaseBill)
+            {
+                $companyId = (int) session('company_id');
 
-        return view(
-            'purchase-bills.show',
-            compact('purchaseBill')
-        );
-    }
+                if (
+                    $companyId <= 0
+                    || (int) $purchaseBill->company_id !== $companyId
+                ) {
+                    abort(404);
+                }
 
-    public function addPayment(
-        Request $request,
-        PurchaseBill $purchaseBill
-    ) {
-        $companyId = (int) session('company_id');
+                $purchaseBill->load(
+                    'vendor',
+                    'items',
+                    'payments.items.account',
+                    'purchaseOrder',
+                    'transaction'
+                );
 
-        /*
-         * Tenant protection.
-         */
-        if (
-            $companyId <= 0
-            || (int) $purchaseBill->company_id !== $companyId
+                $paymentAccounts = Account::query()
+                    ->where('company_id', $companyId)
+                    ->where('account_type', 'Asset')
+                    ->where('is_active', true)
+                    ->whereIn('nature', [
+                        Account::NATURE_CASH,
+                        Account::NATURE_BANK,
+                    ])
+                    ->orderBy('account_code')
+                    ->get();
+
+                return view(
+                    'purchase-bills.show',
+                    compact(
+                        'purchaseBill',
+                        'paymentAccounts'
+                    )
+                );
+            }
+
+
+            public function addPayment(
+            Request $request,
+            PurchaseBill $purchaseBill
         ) {
-            abort(404);
+            $companyId = (int) session('company_id');
+
+            /*
+            * Tenant protection.
+            */
+            if (
+                $companyId <= 0
+                || (int) $purchaseBill->company_id !== $companyId
+            ) {
+                abort(404);
+            }
+
+            $request->validate([
+                'payment_date' => [
+                    'required',
+                    'date',
+                ],
+
+                'payment_items' => [
+                    'required',
+                    'array',
+                    'min:1',
+                ],
+
+                'payment_items.*.account_id' => [
+                    'required',
+                    'integer',
+                    'distinct',
+                    Rule::exists('accounts', 'id')
+                        ->where(
+                            fn ($query) => $query
+                                ->where('company_id', $companyId)
+                                ->where('account_type', 'Asset')
+                                ->where('is_active', true)
+                                ->whereIn('nature', [
+                                    Account::NATURE_CASH,
+                                    Account::NATURE_BANK,
+                                ])
+                        ),
+                ],
+
+                'payment_items.*.amount' => [
+                    'required',
+                    'numeric',
+                    'min:0.01',
+                ],
+
+                'reference' => [
+                    'nullable',
+                    'string',
+                    'max:255',
+                ],
+
+                'notes' => [
+                    'nullable',
+                    'string',
+                ],
+            ]);
+
+            DB::transaction(function () use (
+                $request,
+                $purchaseBill,
+                $companyId
+            ) {
+                /*
+                * Lock the bill so concurrent payments cannot
+                * overpay the same Purchase Bill.
+                */
+                $bill = PurchaseBill::query()
+                    ->where('company_id', $companyId)
+                    ->lockForUpdate()
+                    ->findOrFail($purchaseBill->id);
+
+                $alreadyPaid = (float) PurchaseBillPayment::query()
+                    ->where('purchase_bill_id', $bill->id)
+                    ->sum('amount');
+
+                $dueAmount =
+                    (float) $bill->total - $alreadyPaid;
+
+                if ($dueAmount <= 0.0001) {
+                    throw new \RuntimeException(
+                        'This Purchase Bill has no outstanding due amount.'
+                    );
+                }
+
+                /*
+                * Calculate the payment total from the actual
+                * payment lines. The client cannot submit a
+                * separate total that differs from the lines.
+                */
+                $paymentItems = collect(
+                    $request->input('payment_items', [])
+                )->map(function (array $item): array {
+                    return [
+                        'account_id' => (int) $item['account_id'],
+                        'amount' => (float) $item['amount'],
+                    ];
+                });
+
+                $amount = (float) $paymentItems->sum('amount');
+
+                if ($amount <= 0.0001) {
+                    throw new \RuntimeException(
+                        'Payment amount must be greater than zero.'
+                    );
+                }
+
+                if ($amount > $dueAmount + 0.0001) {
+                    throw new \RuntimeException(
+                        'Payment amount cannot exceed the outstanding due amount.'
+                    );
+                }
+
+                /*
+                * Resolve all selected accounts again inside the
+                * transaction. This protects against stale or
+                * manipulated account data.
+                */
+                $accountIds = $paymentItems
+                    ->pluck('account_id')
+                    ->unique()
+                    ->values();
+
+                $accounts = Account::query()
+                    ->where('company_id', $companyId)
+                    ->whereIn('id', $accountIds)
+                    ->where('account_type', 'Asset')
+                    ->where('is_active', true)
+                    ->whereIn('nature', [
+                        Account::NATURE_CASH,
+                        Account::NATURE_BANK,
+                    ])
+                    ->get()
+                    ->keyBy('id');
+
+                if ($accounts->count() !== $accountIds->count()) {
+                    throw new \RuntimeException(
+                        'One or more payment accounts are invalid for this company.'
+                    );
+                }
+
+                /*
+                * Determine the payment method from the selected
+                * account nature.
+                *
+                * Single Cash  -> Cash
+                * Single Bank  -> Bank
+                * Cash + Bank   -> Mixed
+                */
+                $natures = $paymentItems
+                    ->pluck('account_id')
+                    ->map(
+                        fn (int $accountId): string =>
+                            $accounts->get($accountId)->nature
+                    )
+                    ->unique()
+                    ->values();
+
+                $paymentMethod = match (true) {
+                    $natures->count() === 1
+                        && $natures->first() === Account::NATURE_CASH
+                        => 'Cash',
+
+                    $natures->count() === 1
+                        && $natures->first() === Account::NATURE_BANK
+                        => 'Bank',
+
+                    default => 'Mixed',
+                };
+
+                /*
+                * Create one payment header.
+                *
+                * The header stores the total amount.
+                * Individual cash/bank allocations are stored
+                * in purchase_bill_payment_items.
+                */
+                $payment = PurchaseBillPayment::create([
+                    'purchase_bill_id' => $bill->id,
+                    'payment_date' => $request->payment_date,
+                    'amount' => $amount,
+                    'payment_method' => $paymentMethod,
+                    'reference' => $request->reference,
+                    'notes' => $request->notes,
+                ]);
+
+                /*
+                * Create the individual payment allocation lines.
+                */
+                foreach ($paymentItems as $item) {
+                    $payment->items()->create([
+                        'account_id' => $item['account_id'],
+                        'amount' => $item['amount'],
+                    ]);
+                }
+
+                /*
+                * Create and post one accounting voucher:
+                *
+                * Dr Accounts Payable       = total payment
+                * Cr Cash                   = cash portion
+                * Cr Bank                   = bank portion
+                */
+                $this->purchaseAccountingService
+                    ->createPaymentVoucher($payment);
+
+                /*
+                * Recalculate bill totals from actual payment
+                * records.
+                */
+                $totalPaid = (float) PurchaseBillPayment::query()
+                    ->where('purchase_bill_id', $bill->id)
+                    ->sum('amount');
+
+                $remainingDue =
+                    (float) $bill->total - $totalPaid;
+
+                $status = 'Unpaid';
+
+                if ($remainingDue <= 0.0001) {
+                    $status = 'Paid';
+                } elseif ($totalPaid > 0) {
+                    $status = 'Partial';
+                }
+
+                $bill->update([
+                    'paid_amount' => $totalPaid,
+                    'due_amount' => max(0, $remainingDue),
+                    'status' => $status,
+                ]);
+            });
+
+            return back()->with(
+                'success',
+                'Payment added and accounting voucher posted successfully!'
+            );
         }
-
-        $request->validate([
-            'payment_date' => ['required', 'date'],
-            'amount' => [
-                'required',
-                'numeric',
-                'min:0.01',
-            ],
-            'payment_method' => [
-                'required',
-                'string',
-                Rule::in([
-                    'Cash',
-                    'Bank',
-                    'Bank Transfer',
-                    'Bank_Transfer',
-                ]),
-            ],
-            'reference' => [
-                'nullable',
-                'string',
-                'max:255',
-            ],
-            'notes' => [
-                'nullable',
-                'string',
-            ],
-        ]);
-
-        DB::transaction(function () use (
-            $request,
-            $purchaseBill,
-            $companyId
-        ) {
-            /*
-             * Lock the bill so concurrent payments cannot
-             * overpay the same Purchase Bill.
-             */
-            $bill = PurchaseBill::query()
-                ->where('company_id', $companyId)
-                ->lockForUpdate()
-                ->findOrFail($purchaseBill->id);
-
-            $alreadyPaid = (float) PurchaseBillPayment::query()
-                ->where('purchase_bill_id', $bill->id)
-                ->sum('amount');
-
-            $dueAmount =
-                (float) $bill->total - $alreadyPaid;
-
-            $amount = (float) $request->amount;
-
-            if ($dueAmount <= 0.0001) {
-                throw new \RuntimeException(
-                    'This Purchase Bill has no outstanding due amount.'
-                );
-            }
-
-            if ($amount > $dueAmount + 0.0001) {
-                throw new \RuntimeException(
-                    'Payment amount cannot exceed the outstanding due amount.'
-                );
-            }
-
-            /*
-             * Create the payment record.
-             *
-             * Accounting is created immediately after this inside
-             * the same DB transaction.
-             */
-            $payment = PurchaseBillPayment::create([
-                'purchase_bill_id' => $bill->id,
-                'payment_date' => $request->payment_date,
-                'amount' => $amount,
-                'payment_method' => $request->payment_method,
-                'reference' => $request->reference,
-                'notes' => $request->notes,
-            ]);
-
-            /*
-             * Create and post:
-             *
-             * Dr Accounts Payable
-             * Cr Cash / Bank
-             */
-            $this->purchaseAccountingService
-                ->createPaymentVoucher($payment);
-
-            /*
-             * Recalculate bill totals from actual payment records.
-             */
-            $totalPaid = (float) PurchaseBillPayment::query()
-                ->where('purchase_bill_id', $bill->id)
-                ->sum('amount');
-
-            $remainingDue =
-                (float) $bill->total - $totalPaid;
-
-            $status = 'Unpaid';
-
-            if ($remainingDue <= 0.0001) {
-                $status = 'Paid';
-            } elseif ($totalPaid > 0) {
-                $status = 'Partial';
-            }
-
-            $bill->update([
-                'paid_amount' => $totalPaid,
-                'due_amount' => max(0, $remainingDue),
-                'status' => $status,
-            ]);
-        });
-
-        return back()->with(
-            'success',
-            'Payment added and accounting voucher posted successfully!'
-        );
-    }
 
     public function destroy(PurchaseBill $purchaseBill)
     {

@@ -19,6 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'module' => \App\Http\Middleware\EnsureModuleEnabled::class,
             'plan-feature' => \App\Http\Middleware\EnsurePlanFeatureEnabled::class,
             'admin' => \App\Http\Middleware\AdminMiddleware::class,
+            'super-admin' => \App\Http\Middleware\SuperAdminMiddleware::class,
         ]);
 
         $middleware->web(append: [

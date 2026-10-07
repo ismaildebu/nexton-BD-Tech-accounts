@@ -10,8 +10,13 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                 </svg>
             </div>
-            <h1 class="text-3xl font-bold text-green-600 mb-2">Payment Successful!</h1>
-            <p class="text-gray-600">Your payment has been received and processed.</p>
+            @if(in_array($payment->status, ['received', 'verified'], true))
+                <h1 class="text-3xl font-bold text-green-600 mb-2">Payment Successful!</h1>
+                <p class="text-gray-600">Your payment has been received and processed.</p>
+            @else
+                <h1 class="text-3xl font-bold text-yellow-600 mb-2">Payment Submitted</h1>
+                <p class="text-gray-600">Your payment details were submitted. The payment will be confirmed after verification.</p>
+            @endif
         </div>
 
         <!-- Payment Details -->

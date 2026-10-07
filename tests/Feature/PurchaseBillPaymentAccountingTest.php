@@ -16,7 +16,6 @@ use App\Models\Vendor;
 use App\Models\VoucherType;
 use App\Services\PurchaseAccountingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -180,7 +179,20 @@ class PurchaseBillPaymentAccountingTest extends TestCase
         float $amount,
         string $method = 'Cash'
     ): PurchaseBillPayment {
-        return PurchaseBillPayment::create([
+        $paymentMethod = strtolower(trim($method));
+
+        $accountId = match ($paymentMethod) {
+            'cash' => $this->cashAccount->id,
+
+            'bank',
+            'bank transfer',
+            'bank_transfer',
+            'cheque' => $this->bankAccount->id,
+
+            default => $this->cashAccount->id,
+        };
+
+        $payment = PurchaseBillPayment::create([
             'purchase_bill_id' => $bill->id,
             'payment_date' => '2026-10-03',
             'amount' => $amount,
@@ -188,6 +200,13 @@ class PurchaseBillPaymentAccountingTest extends TestCase
             'reference' => 'TEST-PAYMENT',
             'notes' => 'Payment accounting test.',
         ]);
+
+        $payment->items()->create([
+            'account_id' => $accountId,
+            'amount' => $amount,
+        ]);
+
+        return $payment;
     }
 
     public function test_purchase_bill_payment_creates_and_posts_payment_voucher(): void
@@ -413,10 +432,15 @@ class PurchaseBillPaymentAccountingTest extends TestCase
 
     public function test_payment_rejects_non_liability_vendor_account(): void
     {
-        // 1. Create the bill while the vendor still has a valid Liability account.
+        /*
+         * Create the bill while the vendor still has a valid
+         * Liability account.
+         */
         $bill = $this->createPurchaseBill(1000);
 
-        // 2. Now corrupt the vendor's account mapping.
+        /*
+         * Now corrupt the vendor's account mapping.
+         */
         $wrongAccount = Account::create([
             'company_id' => $this->companyId,
             'account_code' => '4001',
@@ -431,7 +455,9 @@ class PurchaseBillPaymentAccountingTest extends TestCase
             'account_id' => $wrongAccount->id,
         ]);
 
-        // 3. The payment must be rejected by createPaymentVoucher().
+        /*
+         * The payment must be rejected by createPaymentVoucher().
+         */
         $payment = $this->createPayment(
             $bill,
             1000,
@@ -465,31 +491,103 @@ class PurchaseBillPaymentAccountingTest extends TestCase
         $this->expectException(RuntimeException::class);
 
         $this->expectExceptionMessage(
-            'Cash or bank account is not configured for payment method: Cash'
+            "Payment account #{$this->cashAccount->id} is inactive."
         );
 
         app(PurchaseAccountingService::class)
             ->createPaymentVoucher($payment);
     }
 
-    public function test_payment_rejects_unsupported_payment_method(): void
+    public function test_purchase_bill_payment_supports_cash_and_bank_split(): void
     {
-        $bill = $this->createPurchaseBill(1000);
+        /*
+         * Fund the bank account so the VoucherService balance
+         * protection allows the ৳300 bank withdrawal.
+         */
+        $this->bankAccount->update([
+            'opening_balance' => 10000,
+        ]);
 
-        $payment = $this->createPayment(
-            $bill,
-            1000,
-            'Cheque'
-        );
+        $bill = $this->createPurchaseBill(500);
 
-        $this->expectException(RuntimeException::class);
+        $payment = PurchaseBillPayment::create([
+            'purchase_bill_id' => $bill->id,
+            'payment_date' => '2026-10-03',
+            'amount' => 500,
+            'payment_method' => 'Mixed',
+            'reference' => 'SPLIT-PAYMENT',
+            'notes' => 'Cash and bank split payment.',
+        ]);
 
-        $this->expectExceptionMessage(
-            'Unsupported purchase payment method: Cheque'
-        );
+        $payment->items()->createMany([
+            [
+                'account_id' => $this->cashAccount->id,
+                'amount' => 200,
+            ],
+            [
+                'account_id' => $this->bankAccount->id,
+                'amount' => 300,
+            ],
+        ]);
 
-        app(PurchaseAccountingService::class)
+        $transaction = app(PurchaseAccountingService::class)
             ->createPaymentVoucher($payment);
+
+        $details = $transaction->details;
+
+        $payableDetail = $details->first(
+            fn ($detail) =>
+                (int) $detail->account_id === $this->payableAccount->id
+        );
+
+        $cashDetail = $details->first(
+            fn ($detail) =>
+                (int) $detail->account_id === $this->cashAccount->id
+        );
+
+        $bankDetail = $details->first(
+            fn ($detail) =>
+                (int) $detail->account_id === $this->bankAccount->id
+        );
+
+        $this->assertNotNull($payableDetail);
+        $this->assertNotNull($cashDetail);
+        $this->assertNotNull($bankDetail);
+
+        $this->assertEquals(
+            500.0000,
+            (float) $payableDetail->debit_amount
+        );
+
+        $this->assertEquals(
+            200.0000,
+            (float) $cashDetail->credit_amount
+        );
+
+        $this->assertEquals(
+            300.0000,
+            (float) $bankDetail->credit_amount
+        );
+
+        $this->assertEquals(
+            500.0000,
+            (float) $transaction->total_debit
+        );
+
+        $this->assertEquals(
+            500.0000,
+            (float) $transaction->total_credit
+        );
+
+        $this->assertSame(
+            'Mixed',
+            $payment->fresh()->payment_method
+        );
+
+        $this->assertSame(
+            2,
+            $payment->fresh()->items()->count()
+        );
     }
 
     public function test_payment_is_company_scoped(): void
@@ -553,7 +651,9 @@ class PurchaseBillPaymentAccountingTest extends TestCase
             'notes' => null,
         ]);
 
-        $this->expectException(\Illuminate\Database\Eloquent\ModelNotFoundException::class);
+        $this->expectException(
+            \Illuminate\Database\Eloquent\ModelNotFoundException::class
+        );
 
         app(PurchaseAccountingService::class)
             ->createPaymentVoucher($payment);

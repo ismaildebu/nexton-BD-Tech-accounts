@@ -196,8 +196,7 @@ class CustomerPaymentController extends Controller
      *
      * POST /customer/pay/bkash/{payment_id}
      *
-     * Actual payment received হলে:
-     * received → Receive Voucher
+     * Customer-submitted details only; voucher is created on admin verification.
      */
     public function submitBkashPayment(
         Request $request,
@@ -206,46 +205,43 @@ class CustomerPaymentController extends Controller
         $this->assertPaymentCompany($payment);
 
         $validated = $request->validate([
-            'transaction_id' => 'required|string|max:50',
-            'sender_number' => 'required|string|max:20',
+            'transaction_id' => ['required', 'string', 'regex:/^[A-Za-z0-9]{8,20}$/'],
+            'sender_number' => ['required', 'string', 'regex:/^(?:\+?88)?01[3-9]\d{8}$/'],
         ]);
 
         try {
-            $payment->update([
-                'transaction_reference' => $validated['transaction_id'],
-                'metadata' => array_merge(
-                    $payment->metadata ?? [],
-                    [
-                        'sender_number' => $validated['sender_number'],
-                        'receiver_number' => Company::query()
-                            ->whereKey($payment->company_id)
-                            ->value('bkash_number'),
-                    ]
-                ),
-            ]);
-
             /*
-             * Actual payment confirmation.
-             *
-             * markAsReceived() is responsible for:
-             * - marking the payment as received
-             * - creating the receipt voucher once
+             * Submitting a bKash TrxID is a claim, not a confirmation.
+             * The payment stays "pending" and NO voucher is created here;
+             * the receipt voucher is posted when an admin verifies the payment.
              */
-            $payment = $this->paymentService->markAsReceived($payment);
+            $payment = $this->paymentService->submitManualBkashPayment(
+                $payment,
+                $validated['transaction_id'],
+                $validated['sender_number']
+            );
 
             return redirect()
                 ->route('customer-payment.success', $payment->id)
                 ->with(
                     'success',
-                    'Payment received and voucher created.'
+                    'Payment details submitted. The payment will be confirmed after verification.'
                 );
+        } catch (\RuntimeException $e) {
+            return back()
+                ->withInput()
+                ->withErrors(['transaction_id' => $e->getMessage()]);
         } catch (\Throwable $e) {
-            Log::error('bKash payment processing failed.', [
+            Log::error('bKash payment submission failed.', [
                 'payment_id' => $payment->id,
                 'error' => $e->getMessage(),
             ]);
 
-            return back()->withError($e->getMessage());
+            return back()
+                ->withInput()
+                ->withErrors([
+                    'transaction_id' => 'Could not submit the payment details. Please try again.',
+                ]);
         }
     }
 

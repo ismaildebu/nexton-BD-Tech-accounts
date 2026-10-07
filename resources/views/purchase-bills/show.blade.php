@@ -100,84 +100,337 @@
         </div>
 
         {{-- Payment History --}}
-        @if($purchaseBill->payments->count() > 0)
-        <div class="mb-6">
-            <h3 class="font-semibold text-slate-700 mb-3">Payment History</h3>
+@if($purchaseBill->payments->isNotEmpty())
+    <div class="mt-6">
+        <h3 class="text-lg font-semibold text-slate-800 mb-3">
+            Payment History
+        </h3>
+
+        <div class="overflow-x-auto">
             <table class="w-full text-sm border rounded-lg overflow-hidden">
                 <thead class="bg-slate-50">
                     <tr>
-                        <th class="text-left px-4 py-2 font-medium">Date</th>
-                        <th class="text-left px-4 py-2 font-medium">Method</th>
-                        <th class="text-left px-4 py-2 font-medium">Reference</th>
-                        <th class="text-right px-4 py-2 font-medium">Amount</th>
+                        <th class="text-left px-4 py-2 font-medium">
+                            Date
+                        </th>
+                        <th class="text-left px-4 py-2 font-medium">
+                            Method
+                        </th>
+                        <th class="text-left px-4 py-2 font-medium">
+                            Accounts
+                        </th>
+                        <th class="text-left px-4 py-2 font-medium">
+                            Reference
+                        </th>
+                        <th class="text-right px-4 py-2 font-medium">
+                            Amount
+                        </th>
                     </tr>
                 </thead>
+
                 <tbody class="divide-y">
                     @foreach($purchaseBill->payments as $payment)
-                    <tr>
-                        <td class="px-4 py-2">{{ $payment->payment_date->format('d M Y') }}</td>
-                        <td class="px-4 py-2">{{ $payment->payment_method }}</td>
-                        <td class="px-4 py-2 text-slate-600">{{ $payment->reference ?? '-' }}</td>
-                        <td class="px-4 py-2 text-right font-medium text-green-600">
-                            ৳{{ number_format($payment->amount, 2) }}
-                        </td>
-                    </tr>
+                        <tr>
+                            <td class="px-4 py-2">
+                                {{ $payment->payment_date->format('d M Y') }}
+                            </td>
+
+                            <td class="px-4 py-2">
+                                {{ $payment->payment_method }}
+                            </td>
+
+                            <td class="px-4 py-2">
+                                @if($payment->items->isNotEmpty())
+                                    <div class="space-y-1">
+                                        @foreach($payment->items as $item)
+                                            <div>
+                                                <span class="font-medium">
+                                                    {{ $item->account?->account_name ?? '-' }}
+                                                </span>
+
+                                                <span class="text-slate-500">
+                                                    —
+                                                    ৳{{ number_format((float) $item->amount, 2) }}
+                                                </span>
+                                            </div>
+                                        @endforeach
+                                    </div>
+                                @else
+                                    <span class="text-slate-400">
+                                        -
+                                    </span>
+                                @endif
+                            </td>
+
+                            <td class="px-4 py-2 text-slate-600">
+                                {{ $payment->reference ?? '-' }}
+                            </td>
+
+                            <td class="px-4 py-2 text-right font-medium text-green-600">
+                                ৳{{ number_format((float) $payment->amount, 2) }}
+                            </td>
+                        </tr>
                     @endforeach
                 </tbody>
             </table>
         </div>
-        @endif
+    </div>
+@endif
 
-        {{-- Add Payment --}}
-        @if($purchaseBill->status !== 'Paid')
-        <div class="border-t pt-4" x-data="{ showPayment: false }">
-            <button @click="showPayment = !showPayment"
-                    class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 mb-4">
-                + Add Payment
-            </button>
+{{-- Add Payment --}}
+@if($purchaseBill->status !== 'Paid')
+    <div
+        class="border-t pt-4"
+        x-data="{
+            showPayment: false,
+            paymentItems: [
+                {
+                    account_id: '',
+                    amount: ''
+                }
+            ],
+            dueAmount: {{ (float) $purchaseBill->due_amount }},
 
-            <div x-show="showPayment" x-transition>
-                <form method="POST" action="{{ route('purchase-bills.payment', $purchaseBill) }}"
-                      class="bg-slate-50 p-4 rounded-lg grid grid-cols-2 md:grid-cols-4 gap-4">
-                    @csrf
-                    <div>
-                        <label class="block text-xs font-medium text-slate-700 mb-1">Date *</label>
-                        <input type="date" name="payment_date" value="{{ date('Y-m-d') }}" required
-                               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium text-slate-700 mb-1">
-                            Amount * (Max: ৳{{ number_format($purchaseBill->due_amount, 2) }})
-                        </label>
-                        <input type="number" name="amount" step="0.01"
-                               max="{{ $purchaseBill->due_amount }}" required
-                               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium text-slate-700 mb-1">Method *</label>
-                        <select name="payment_method" required
-                                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
-                            <option>Cash</option>
-                            <option>Bank Transfer</option>
-                            <option>Cheque</option>
-                            <option>Mobile Banking</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium text-slate-700 mb-1">Reference</label>
-                        <input type="text" name="reference"
-                               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
-                    </div>
-                    <div class="col-span-2 md:col-span-4">
-                        <button type="submit"
-                                class="bg-green-600 text-white px-6 py-2 rounded-lg text-sm font-medium hover:bg-green-700">
-                            Save Payment
+            totalAmount() {
+                return this.paymentItems.reduce(
+                    (total, item) => {
+                        return total + (
+                            parseFloat(item.amount) || 0
+                        );
+                    },
+                    0
+                );
+            },
+
+            remainingAmount() {
+                return Math.max(
+                    0,
+                    this.dueAmount - this.totalAmount()
+                );
+            },
+
+            addPaymentItem() {
+                this.paymentItems.push({
+                    account_id: '',
+                    amount: ''
+                });
+            },
+
+            removePaymentItem(index) {
+                if (this.paymentItems.length <= 1) {
+                    return;
+                }
+
+                this.paymentItems.splice(index, 1);
+            }
+        }"
+    >
+        <button
+            type="button"
+            @click="showPayment = !showPayment"
+            class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 mb-4"
+        >
+            + Add Payment
+        </button>
+
+        <div x-show="showPayment" x-transition>
+            <form
+                method="POST"
+                action="{{ route('purchase-bills.payment', $purchaseBill) }}"
+                class="bg-slate-50 p-4 rounded-lg space-y-4"
+            >
+                @csrf
+
+                {{-- Payment Date --}}
+                <div>
+                    <label class="block text-xs font-medium text-slate-700 mb-1">
+                        Date *
+                    </label>
+
+                    <input
+                        type="date"
+                        name="payment_date"
+                        value="{{ date('Y-m-d') }}"
+                        required
+                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                    >
+                </div>
+
+                {{-- Payment Allocations --}}
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700">
+                                Payment Accounts
+                            </label>
+
+                            <p class="text-xs text-slate-500 mt-1">
+                                Split this payment between Cash and Bank accounts if required.
+                            </p>
+                        </div>
+
+                        <button
+                            type="button"
+                            @click="addPaymentItem()"
+                            class="text-sm bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700"
+                        >
+                            + Add Account
                         </button>
                     </div>
-                </form>
-            </div>
+
+                    <div class="space-y-3">
+                        <template
+                            x-for="(item, index) in paymentItems"
+                            :key="index"
+                        >
+                            <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end bg-white border border-slate-200 rounded-lg p-3">
+                                {{-- Account --}}
+                                <div class="md:col-span-7">
+                                    <label class="block text-xs font-medium text-slate-700 mb-1">
+                                        Payment Account *
+                                    </label>
+
+                                    <select
+                                        :name="`payment_items[${index}][account_id]`"
+                                        x-model="item.account_id"
+                                        required
+                                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                                    >
+                                        <option value="">
+                                            -- Select Account --
+                                        </option>
+
+                                        @foreach($paymentAccounts as $account)
+                                            <option value="{{ $account->id }}">
+                                                {{ $account->account_code }}
+                                                - {{ $account->account_name }}
+                                                ({{ $account->nature }})
+                                            </option>
+                                        @endforeach
+                                    </select>
+                                </div>
+
+                                {{-- Amount --}}
+                                <div class="md:col-span-4">
+                                    <label class="block text-xs font-medium text-slate-700 mb-1">
+                                        Amount *
+                                    </label>
+
+                                    <input
+                                        type="number"
+                                        :name="`payment_items[${index}][amount]`"
+                                        x-model="item.amount"
+                                        min="0.01"
+                                        step="0.01"
+                                        :max="dueAmount"
+                                        required
+                                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                                        placeholder="0.00"
+                                    >
+                                </div>
+
+                                {{-- Remove --}}
+                                <div class="md:col-span-1">
+                                    <button
+                                        type="button"
+                                        @click="removePaymentItem(index)"
+                                        :disabled="paymentItems.length <= 1"
+                                        class="w-full px-3 py-2 rounded-lg text-sm font-medium border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                                    >
+                                        Remove
+                                    </button>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                {{-- Payment Summary --}}
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div class="bg-white border border-slate-200 rounded-lg p-3">
+                        <div class="text-xs text-slate-500">
+                            Outstanding Due
+                        </div>
+
+                        <div class="text-lg font-semibold text-slate-800">
+                            ৳<span
+                                x-text="dueAmount.toFixed(2)"
+                            ></span>
+                        </div>
+                    </div>
+
+                    <div class="bg-white border border-slate-200 rounded-lg p-3">
+                        <div class="text-xs text-slate-500">
+                            Payment Total
+                        </div>
+
+                        <div class="text-lg font-semibold text-green-600">
+                            ৳<span
+                                x-text="totalAmount().toFixed(2)"
+                            ></span>
+                        </div>
+                    </div>
+
+                    <div class="bg-white border border-slate-200 rounded-lg p-3">
+                        <div class="text-xs text-slate-500">
+                            Remaining After Payment
+                        </div>
+
+                        <div class="text-lg font-semibold text-blue-600">
+                            ৳<span
+                                x-text="remainingAmount().toFixed(2)"
+                            ></span>
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Reference --}}
+                <div>
+                    <label class="block text-xs font-medium text-slate-700 mb-1">
+                        Reference
+                    </label>
+
+                    <input
+                        type="text"
+                        name="reference"
+                        maxlength="255"
+                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                        placeholder="Optional reference"
+                    >
+                </div>
+
+                {{-- Notes --}}
+                <div>
+                    <label class="block text-xs font-medium text-slate-700 mb-1">
+                        Notes
+                    </label>
+
+                    <textarea
+                        name="notes"
+                        rows="3"
+                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                        placeholder="Optional notes"
+                    ></textarea>
+                </div>
+
+                {{-- Submit --}}
+                <div class="flex items-center justify-between gap-4">
+                    <div class="text-xs text-slate-500">
+                        Example:
+                        Cash ৳200 + Bank ৳300 = Payment ৳500
+                    </div>
+
+                    <button
+                        type="submit"
+                        class="bg-green-600 text-white px-6 py-2 rounded-lg text-sm font-medium hover:bg-green-700"
+                    >
+                        Save Payment
+                    </button>
+                </div>
+            </form>
         </div>
-        @endif
+    </div>
+@endif
 
         <div class="mt-4">
             <a href="{{ route('purchase-bills.index') }}"
