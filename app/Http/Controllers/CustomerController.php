@@ -37,7 +37,8 @@ class CustomerController extends Controller
 
     public function bulkCreate()
     {
-        return view('customers.bulk-create');
+        // customers/create.blade.php is the bulk-entry form (same as vendors).
+        return view('customers.create');
     }
 
     public function store(Request $request)
