@@ -43,6 +43,7 @@ Route::middleware(['auth', 'verified', 'company'])
             ->name('employees.destroy');
 
         Route::get('/employees/{employee}/photo', [EmployeeController::class, 'photo'])
+            ->middleware('can-permission:employees.view')
             ->name('employees.photo');
 
         Route::get('/salaries', [SalaryController::class, 'index'])

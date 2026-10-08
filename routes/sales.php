@@ -9,10 +9,12 @@ use App\Http\Controllers\ExpenseController;
 Route::middleware(['auth', 'verified', 'company'])->group(function (): void {
     
     Route::get('/customers/bulk-create', [CustomerController::class, 'bulkCreate'])
-    ->name('customers.bulk-create');
+        ->middleware('can-permission:customers.create')
+        ->name('customers.bulk-create');
 
-Route::post('/customers/bulk-store', [CustomerController::class, 'bulkStore'])
-    ->name('customers.bulk-store');
+    Route::post('/customers/bulk-store', [CustomerController::class, 'bulkStore'])
+        ->middleware('can-permission:customers.create')
+        ->name('customers.bulk-store');
 
 
 Route::resource('customers', CustomerController::class)

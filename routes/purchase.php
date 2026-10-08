@@ -8,9 +8,11 @@ use App\Http\Controllers\PurchaseBillController;
 Route::middleware(['auth', 'verified', 'company'])->group(function (): void {
 
     Route::get('/vendors/bulk-create', [VendorController::class, 'bulkCreate'])
+        ->middleware('can-permission:vendors.create')
         ->name('vendors.bulk-create');
 
     Route::post('/vendors/bulk-store', [VendorController::class, 'bulkStore'])
+        ->middleware('can-permission:vendors.create')
         ->name('vendors.bulk-store');
 
     Route::resource('vendors', VendorController::class)
