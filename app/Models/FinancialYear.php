@@ -20,6 +20,11 @@ class FinancialYear extends Model
         'end_date',
         'is_active',
         'is_closed',
+        'closed_at',
+        'closed_by',
+        'reopened_at',
+        'reopened_by',
+        'reopen_reason',
     ];
 
     protected $casts = [
@@ -27,6 +32,8 @@ class FinancialYear extends Model
         'end_date' => 'date',
         'is_active' => 'boolean',
         'is_closed' => 'boolean',
+        'closed_at' => 'datetime',
+        'reopened_at' => 'datetime',
     ];
 
     public function company(): BelongsTo

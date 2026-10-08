@@ -64,6 +64,7 @@ class RoleAndPermissionSeeder extends Seeder
 
         'financial-years.view'    => 'accounting',
         'financial-years.manage'  => 'accounting',
+        'financial-years.reopen'  => 'accounting',
 
         // ---------------------------------------------------------
         // Sales
@@ -253,6 +254,7 @@ class RoleAndPermissionSeeder extends Seeder
 
             'financial-years.view',
             'financial-years.manage',
+            'financial-years.reopen',
 
             // Sales
             'invoices.view',

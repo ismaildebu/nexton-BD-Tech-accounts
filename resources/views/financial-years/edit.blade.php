@@ -119,28 +119,28 @@
 
 </div>
 
-<!-- Closed -->
+<!-- Closed (read only: use the Close / Reopen buttons below) -->
 
 <div class="mb-4">
 
     <label class="block font-semibold mb-2">
-        Closed
+        Status
     </label>
 
-    <select name="is_closed"
-            class="w-full border rounded px-3 py-2">
+    <p class="w-full border rounded px-3 py-2 bg-gray-50">
+        @if ($financialYear->is_closed)
+            Closed
+            @if ($financialYear->closed_at)
+                since {{ $financialYear->closed_at->format('Y-m-d') }}
+            @endif
+        @else
+            Open
+        @endif
+    </p>
 
-        <option value="0"
-            {{ $financialYear->is_closed == 0 ? 'selected' : '' }}>
-            No
-        </option>
-
-        <option value="1"
-            {{ $financialYear->is_closed == 1 ? 'selected' : '' }}>
-            Yes
-        </option>
-
-    </select>
+    <p class="text-sm text-gray-500 mt-1">
+        A closed financial year cannot be edited. Reopening needs a reason.
+    </p>
 
 </div>
 
@@ -166,6 +166,44 @@
 
 
 </form>
+
+@if (! $financialYear->is_closed)
+    @can('financial-years.manage')
+        <form action="{{ route('financial-years.close', $financialYear) }}"
+              method="POST"
+              class="mt-6"
+              onsubmit="return confirm('Close this financial year? No voucher can be posted into it afterwards.')">
+            @csrf
+            <button type="submit"
+                    class="bg-gray-800 hover:bg-gray-900 text-white px-5 py-2 rounded">
+                Close Financial Year
+            </button>
+            <p class="text-sm text-gray-500 mt-1">
+                Possible only when every voucher is Posted or Cancelled.
+            </p>
+        </form>
+    @endcan
+@else
+    @can('financial-years.reopen')
+        <form action="{{ route('financial-years.reopen', $financialYear) }}"
+              method="POST"
+              class="mt-6">
+            @csrf
+            <label class="block font-semibold mb-2">Reason for reopening</label>
+            <textarea name="reason"
+                      rows="3"
+                      required
+                      minlength="10"
+                      class="w-full border rounded px-3 py-2 mb-2"
+                      placeholder="Why must this closed year be reopened? (at least 10 characters)">{{ old('reason') }}</textarea>
+            <button type="submit"
+                    class="bg-red-600 hover:bg-red-700 text-white px-5 py-2 rounded"
+                    onclick="return confirm('Reopen this closed financial year?')">
+                Reopen Financial Year
+            </button>
+        </form>
+    @endcan
+@endif
 
 </div>
 
