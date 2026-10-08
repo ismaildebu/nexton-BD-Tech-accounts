@@ -10,6 +10,7 @@ use App\Services\SubscriptionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rules\Password;
 use App\Models\FinancialYear;
 use App\Models\VoucherType;
 
@@ -65,7 +66,7 @@ class CompanyController extends Controller
 
             'admin_name'                  => 'required|string|max:255',
             'admin_email'                 => 'required|email|max:255|unique:users,email',
-            'admin_password'              => 'required|string|min:6|confirmed',
+            'admin_password'              => ['required', 'string', Password::defaults(), 'confirmed'],
         ]);
 
         DB::transaction(function () use ($request) {

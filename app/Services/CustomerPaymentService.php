@@ -9,6 +9,7 @@ use App\Models\Company;
 use App\Models\Customer;
 use App\Models\CustomerPayment;
 use App\Models\Invoice;
+use App\Models\User;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -557,9 +558,26 @@ class CustomerPaymentService
         CustomerPayment $payment
     ): void {
         try {
-            $adminEmails = [
-                'admin@example.com',
-            ];
+            // The payment is verified by the admins of the paying company,
+            // plus any extra address configured in config/payments.php.
+            $adminEmails = User::query()
+                ->where('company_id', $payment->company_id)
+                ->whereNotNull('email')
+                ->whereHas('roles', fn ($query) => $query->where('name', 'admin'))
+                ->pluck('email')
+                ->merge((array) config('payments.admin_notification_emails', []))
+                ->unique()
+                ->values()
+                ->all();
+
+            if ($adminEmails === []) {
+                Log::warning('No recipient for the admin payment notification.', [
+                    'payment_id' => $payment->id,
+                    'company_id' => $payment->company_id,
+                ]);
+
+                return;
+            }
 
             foreach ($adminEmails as $email) {
                 Mail::to($email)
