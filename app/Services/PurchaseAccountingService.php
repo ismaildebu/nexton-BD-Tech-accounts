@@ -13,6 +13,7 @@ use App\Models\Transaction;
 use App\Models\Vendor;
 use App\Models\VoucherType;
 use Illuminate\Support\Facades\DB;
+use App\Support\Money;
 use RuntimeException;
 
 class PurchaseAccountingService
@@ -169,10 +170,10 @@ class PurchaseAccountingService
              * Build purchase voucher details.
              */
             $details = [];
-            $debitTotal = 0.0;
-            $billTotal = (float) $bill->total;
+            $debitTotal = '0';
+            $billTotal = Money::of($bill->total);
 
-            if ($billTotal <= 0) {
+            if (! Money::isPositive($billTotal)) {
                 throw new RuntimeException(
                     "Purchase Bill #{$bill->bill_number} total must be greater than zero."
                 );
@@ -211,11 +212,11 @@ class PurchaseAccountingService
                     'description' =>
                         "Purchase Clearing - Bill #{$bill->bill_number}",
                     'debit_amount' =>
-                        number_format($billTotal, 4, '.', ''),
+                        Money::fixed($billTotal),
                     'credit_amount' => '0.0000',
                 ];
 
-                $debitTotal += $billTotal;
+                $debitTotal = Money::add($debitTotal, $billTotal);
             } else {
                 /*
                  * Standalone Purchase Bill:
@@ -299,9 +300,9 @@ class PurchaseAccountingService
                         );
                     }
 
-                    $itemTotal = (float) $item->total;
+                    $itemTotal = Money::of($item->total);
 
-                    if ($itemTotal <= 0) {
+                    if (! Money::isPositive($itemTotal)) {
                         throw new RuntimeException(
                             "Purchase Bill item #{$item->id} "
                             . 'must have a positive total.'
@@ -314,17 +315,17 @@ class PurchaseAccountingService
                             $item->description
                                 ?: $item->item_name,
                         'debit_amount' =>
-                            number_format($itemTotal, 4, '.', ''),
+                            Money::fixed($itemTotal),
                         'credit_amount' => '0.0000',
                     ];
 
-                    $debitTotal += $itemTotal;
+                    $debitTotal = Money::add($debitTotal, $itemTotal);
                 }
 
                 /*
                  * Item debits must exactly match the Purchase Bill total.
                  */
-                if (abs($debitTotal - $billTotal) > 0.0001) {
+                if (Money::cmp($debitTotal, $billTotal) !== 0) {
                     throw new RuntimeException(
                         "Purchase Bill #{$bill->bill_number} is not balanced "
                         . "for automatic accounting."
@@ -342,7 +343,7 @@ class PurchaseAccountingService
                     . "- Bill #{$bill->bill_number}",
                 'debit_amount' => '0.0000',
                 'credit_amount' =>
-                    number_format($billTotal, 4, '.', ''),
+                    Money::fixed($billTotal),
             ];
 
             /*
@@ -501,7 +502,7 @@ class PurchaseAccountingService
                 ->with('items.account')
                 ->firstOrFail();
 
-            if ((float) $payment->amount <= 0) {
+            if (! Money::isPositive($payment->amount)) {
                 throw new RuntimeException(
                     'Payment amount must be greater than zero.'
                 );
@@ -584,25 +585,21 @@ class PurchaseAccountingService
             /*
              * Calculate the amount already paid before this payment.
              */
-            $previousPaid = (float) PurchaseBillPayment::query()
+            $previousPaid = Money::of(PurchaseBillPayment::query()
                 ->where('purchase_bill_id', $bill->id)
                 ->where('id', '!=', $payment->id)
-                ->sum('amount');
+                ->sum('amount'));
 
-            $remainingDue =
-                (float) $bill->total - $previousPaid;
+            $remainingDue = Money::sub($bill->total, $previousPaid);
 
-            if ($remainingDue <= 0.0001) {
+            if (! Money::isPositive($remainingDue)) {
                 throw new RuntimeException(
                     "Purchase Bill #{$bill->bill_number} "
                     . 'has no outstanding due amount.'
                 );
             }
 
-            if (
-                (float) $payment->amount
-                > $remainingDue + 0.0001
-            ) {
+            if (Money::cmp($payment->amount, $remainingDue) > 0) {
                 throw new RuntimeException(
                     'Payment amount exceeds the outstanding '
                     . 'Purchase Bill due amount.'
@@ -676,7 +673,7 @@ class PurchaseAccountingService
                     );
                 }
 
-                if ((float) $item->amount <= 0) {
+                if (! Money::isPositive($item->amount)) {
                     throw new RuntimeException(
                         "Payment allocation for account #{$account->id} "
                         . 'must be greater than zero.'
@@ -688,14 +685,11 @@ class PurchaseAccountingService
              * The sum of all allocation lines must exactly equal
              * the payment header amount.
              */
-            $allocationTotal = (float) $paymentItems->sum(
-                fn ($item): float => (float) $item->amount
+            $allocationTotal = Money::sum(
+                $paymentItems->pluck('amount')
             );
 
-            if (
-                abs($allocationTotal - (float) $payment->amount)
-                > 0.0001
-            ) {
+            if (Money::cmp($allocationTotal, $payment->amount) !== 0) {
                 throw new RuntimeException(
                     "Purchase Bill Payment #{$payment->id} allocation total "
                     . 'does not match the payment amount.'
@@ -718,12 +712,7 @@ class PurchaseAccountingService
                         "Payment against Purchase Bill #"
                         . $bill->bill_number,
                     'debit_amount' =>
-                        number_format(
-                            (float) $payment->amount,
-                            4,
-                            '.',
-                            ''
-                        ),
+                        Money::fixed($payment->amount),
                     'credit_amount' => '0.0000',
                 ],
             ];
@@ -736,12 +725,7 @@ class PurchaseAccountingService
                         . $item->account->account_name,
                     'debit_amount' => '0.0000',
                     'credit_amount' =>
-                        number_format(
-                            (float) $item->amount,
-                            4,
-                            '.',
-                            ''
-                        ),
+                        Money::fixed($item->amount),
                 ];
             }
 
@@ -750,15 +734,10 @@ class PurchaseAccountingService
              *
              * This is intentionally checked before posting.
              */
-            $debitTotal = 0.0;
-            $creditTotal = 0.0;
+            $debitTotal = Money::sum(array_column($details, 'debit_amount'));
+            $creditTotal = Money::sum(array_column($details, 'credit_amount'));
 
-            foreach ($details as $detail) {
-                $debitTotal += (float) $detail['debit_amount'];
-                $creditTotal += (float) $detail['credit_amount'];
-            }
-
-            if (abs($debitTotal - $creditTotal) > 0.0001) {
+            if (Money::cmp($debitTotal, $creditTotal) !== 0) {
                 throw new RuntimeException(
                     "Purchase Bill Payment #{$payment->id} "
                     . 'is not balanced.'

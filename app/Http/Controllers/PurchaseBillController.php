@@ -9,6 +9,7 @@ use App\Models\PurchaseBillPayment;
 use App\Models\PurchaseOrder;
 use App\Models\Vendor;
 use App\Services\PurchaseAccountingService;
+use App\Support\Money;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -104,25 +105,35 @@ class PurchaseBillController extends Controller
             ],
 
             'items.*.item_name' => ['required', 'string'],
-            'items.*.quantity' => ['required', 'numeric', 'min:0.01'],
-            'items.*.unit_price' => ['required', 'numeric', 'min:0'],
-            'tax' => ['nullable', 'numeric', 'min:0'],
-            'discount' => ['nullable', 'numeric', 'min:0'],
+            // At most 2 decimals: the columns store 2 places, so a 3rd place
+            // used to be rounded silently and the totals no longer matched.
+            'items.*.quantity' => ['required', 'numeric', 'min:0.01', 'decimal:0,2'],
+            'items.*.unit_price' => ['required', 'numeric', 'min:0', 'decimal:0,2'],
+            'tax' => ['nullable', 'numeric', 'min:0', 'decimal:0,2'],
+            'discount' => ['nullable', 'numeric', 'min:0', 'decimal:0,2'],
         ]);
 
-        $subtotal = 0;
+        // Every line total is rounded to 2 places first, then summed, so the
+        // item totals always add up exactly to the bill subtotal.
+        $lineTotals = [];
+        $subtotal = '0.00';
 
-        foreach ($request->items as $item) {
-            $subtotal +=
-                (float) $item['quantity']
-                * (float) $item['unit_price'];
+        foreach ($request->items as $index => $item) {
+            $lineTotals[$index] = Money::round(
+                Money::mul($item['quantity'], $item['unit_price'])
+            );
+
+            $subtotal = Money::add($subtotal, $lineTotals[$index]);
         }
 
-        $tax = (float) ($request->tax ?? 0);
-        $discount = (float) ($request->discount ?? 0);
-        $total = $subtotal + $tax - $discount;
+        $subtotal = Money::round($subtotal);
+        $tax = Money::round($request->tax ?? 0);
+        $discount = Money::round($request->discount ?? 0);
+        $total = Money::round(
+            Money::sub(Money::add($subtotal, $tax), $discount)
+        );
 
-        if ($total <= 0) {
+        if (! Money::isPositive($total)) {
             return back()->withInput()->withErrors([
                 'items' => 'Purchase Bill total must be greater than zero.',
             ]);
@@ -131,6 +142,7 @@ class PurchaseBillController extends Controller
         $bill = DB::transaction(function () use (
             $request,
             $company_id,
+            $lineTotals,
             $subtotal,
             $tax,
             $discount,
@@ -165,7 +177,7 @@ class PurchaseBillController extends Controller
                 'notes' => $request->notes,
             ]);
 
-            foreach ($request->items as $item) {
+            foreach ($request->items as $index => $item) {
                 PurchaseBillItem::create([
                     'purchase_bill_id' => $bill->id,
                     'account_id' => $item['account_id'] ?? null,
@@ -174,9 +186,7 @@ class PurchaseBillController extends Controller
                     'quantity' => $item['quantity'],
                     'unit' => $item['unit'] ?? null,
                     'unit_price' => $item['unit_price'],
-                    'total' =>
-                        (float) $item['quantity']
-                        * (float) $item['unit_price'],
+                    'total' => $lineTotals[$index],
                 ]);
             }
 
@@ -284,6 +294,7 @@ class PurchaseBillController extends Controller
                     'required',
                     'numeric',
                     'min:0.01',
+                    'decimal:0,2',
                 ],
 
                 'reference' => [
@@ -312,14 +323,13 @@ class PurchaseBillController extends Controller
                     ->lockForUpdate()
                     ->findOrFail($purchaseBill->id);
 
-                $alreadyPaid = (float) PurchaseBillPayment::query()
+                $alreadyPaid = Money::of(PurchaseBillPayment::query()
                     ->where('purchase_bill_id', $bill->id)
-                    ->sum('amount');
+                    ->sum('amount'));
 
-                $dueAmount =
-                    (float) $bill->total - $alreadyPaid;
+                $dueAmount = Money::sub($bill->total, $alreadyPaid);
 
-                if ($dueAmount <= 0.0001) {
+                if (! Money::isPositive($dueAmount)) {
                     throw new \RuntimeException(
                         'This Purchase Bill has no outstanding due amount.'
                     );
@@ -335,19 +345,21 @@ class PurchaseBillController extends Controller
                 )->map(function (array $item): array {
                     return [
                         'account_id' => (int) $item['account_id'],
-                        'amount' => (float) $item['amount'],
+                        'amount' => Money::round($item['amount']),
                     ];
                 });
 
-                $amount = (float) $paymentItems->sum('amount');
+                $amount = Money::round(
+                    Money::sum($paymentItems->pluck('amount'))
+                );
 
-                if ($amount <= 0.0001) {
+                if (! Money::isPositive($amount)) {
                     throw new \RuntimeException(
                         'Payment amount must be greater than zero.'
                     );
                 }
 
-                if ($amount > $dueAmount + 0.0001) {
+                if (Money::cmp($amount, $dueAmount) > 0) {
                     throw new \RuntimeException(
                         'Payment amount cannot exceed the outstanding due amount.'
                     );
@@ -450,24 +462,25 @@ class PurchaseBillController extends Controller
                 * Recalculate bill totals from actual payment
                 * records.
                 */
-                $totalPaid = (float) PurchaseBillPayment::query()
+                $totalPaid = Money::round(PurchaseBillPayment::query()
                     ->where('purchase_bill_id', $bill->id)
-                    ->sum('amount');
+                    ->sum('amount'));
 
-                $remainingDue =
-                    (float) $bill->total - $totalPaid;
+                $remainingDue = Money::sub($bill->total, $totalPaid);
 
                 $status = 'Unpaid';
 
-                if ($remainingDue <= 0.0001) {
+                if (! Money::isPositive($remainingDue)) {
                     $status = 'Paid';
-                } elseif ($totalPaid > 0) {
+                } elseif (Money::isPositive($totalPaid)) {
                     $status = 'Partial';
                 }
 
                 $bill->update([
                     'paid_amount' => $totalPaid,
-                    'due_amount' => max(0, $remainingDue),
+                    'due_amount' => Money::isPositive($remainingDue)
+                        ? Money::round($remainingDue)
+                        : '0.00',
                     'status' => $status,
                 ]);
             });
