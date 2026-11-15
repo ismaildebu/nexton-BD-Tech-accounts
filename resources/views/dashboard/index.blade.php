@@ -6,11 +6,26 @@
 
 @section('content')
 
+
 @php
-    $h = now()->hour;
-    $greeting     = $h >= 5  && $h < 12 ? 'শুভ সকাল'    : ($h >= 12 && $h < 15 ? 'শুভ দুপুর' : ($h >= 15 && $h < 18 ? 'শুভ অপরাহ্ন' : 'শুভ রাত্রি'));
-    $greetingIcon = $h >= 5  && $h < 12 ? '🌅'           : ($h >= 12 && $h < 15 ? '☀️'        : ($h >= 15 && $h < 18 ? '🌤️'         : '🌙'));
+    $now = now('Asia/Dhaka');
+    $hour = $now->hour;
+
+    if ($hour >= 5 && $hour < 12) {
+        $greeting = 'শুভ সকাল';
+        $greetingIcon = '🌅';
+    } elseif ($hour >= 12 && $hour < 15) {
+        $greeting = 'শুভ দুপুর';
+        $greetingIcon = '☀️';
+    } elseif ($hour >= 15 && $hour < 18) {
+        $greeting = 'শুভ অপরাহ্ন';
+        $greetingIcon = '🌤️';
+    } else {
+        $greeting = 'শুভ রাত্রি';
+        $greetingIcon = '🌙';
+    }
 @endphp
+
 
 <style>
 .dashboard-bg{background:radial-gradient(circle at 5% 5%,rgba(59,130,246,.10),transparent 25%),radial-gradient(circle at 95% 8%,rgba(168,85,247,.10),transparent 25%),radial-gradient(circle at 90% 90%,rgba(20,184,166,.08),transparent 25%),#f8fafc}
@@ -76,8 +91,7 @@
                 </div>
             </div>
             <p class="text-sm text-blue-100">
-                {{ now()->translatedFormat('l, j F Y') }}
-                <span class="mx-1 opacity-50">•</span>
+                
                 আপনার ব্যবসার বর্তমান আর্থিক চিত্র
             </p>
         </div>
