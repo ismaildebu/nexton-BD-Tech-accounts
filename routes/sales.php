@@ -9,10 +9,12 @@ use App\Http\Controllers\ExpenseController;
 Route::middleware(['auth', 'verified', 'company'])->group(function (): void {
     
     Route::get('/customers/bulk-create', [CustomerController::class, 'bulkCreate'])
-    ->name('customers.bulk-create');
+        ->middleware('can-permission:customers.create')
+        ->name('customers.bulk-create');
 
-Route::post('/customers/bulk-store', [CustomerController::class, 'bulkStore'])
-    ->name('customers.bulk-store');
+    Route::post('/customers/bulk-store', [CustomerController::class, 'bulkStore'])
+        ->middleware('can-permission:customers.create')
+        ->name('customers.bulk-store');
 
 
 Route::resource('customers', CustomerController::class)
@@ -26,8 +28,14 @@ Route::resource('customers', CustomerController::class)
             ->middlewareFor(['index', 'show'], 'can-permission:sales-orders.view')
             ->middlewareFor(['create', 'store'], 'can-permission:sales-orders.create')
             ->middlewareFor('destroy', 'can-permission:sales-orders.delete');
+
+        Route::get('sales-orders/{salesOrder}/pdf', [SalesOrderController::class, 'pdf'])
+            ->middleware('can-permission:sales-orders.view')
+            ->name('sales-orders.pdf');
+
         Route::post('sales-orders/{salesOrder}/status', [SalesOrderController::class, 'updateStatus'])
-            ->middleware('can-permission:sales-orders.edit')->name('sales-orders.status');
+            ->middleware('can-permission:sales-orders.edit')
+            ->name('sales-orders.status');
     });
 
     Route::resource('invoices', InvoiceController::class)

@@ -37,6 +37,8 @@ class Company extends Model
         'Trading',
         'Manufacturing',
         'Hospital',
+        'Media',
+        'Education',
     ];
 
     public const SALES_ORDER_ENABLED_TYPES = [

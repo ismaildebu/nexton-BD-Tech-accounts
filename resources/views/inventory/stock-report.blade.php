@@ -79,7 +79,7 @@
                     <td class="px-4 py-3 text-right">৳{{ number_format($product->purchase_price, 2) }}</td>
                     @foreach($warehouses as $w)
                     <td class="px-4 py-3 text-right">
-                        {{ number_format($product->stockInWarehouse($w->id), 2) }}
+                        {{ number_format((float) ($product->stocks->firstWhere('warehouse_id', $w->id)?->quantity ?? 0), 2) }}
                     </td>
                     @endforeach
                     <td class="px-4 py-3 text-right font-medium

@@ -20,13 +20,20 @@ class FinancialYear extends Model
         'end_date',
         'is_active',
         'is_closed',
+        'closed_at',
+        'closed_by',
+        'reopened_at',
+        'reopened_by',
+        'reopen_reason',
     ];
 
     protected $casts = [
         'start_date' => 'date',
-        'end_date'   => 'date',
-        'is_active'  => 'boolean',
-        'is_closed'  => 'boolean',
+        'end_date' => 'date',
+        'is_active' => 'boolean',
+        'is_closed' => 'boolean',
+        'closed_at' => 'datetime',
+        'reopened_at' => 'datetime',
     ];
 
     public function company(): BelongsTo
@@ -36,10 +43,12 @@ class FinancialYear extends Model
 
     public function transactions(): HasMany
     {
-        return $this->hasMany(Transaction::class, 'financial_year_id');
+        return $this->hasMany(
+            Transaction::class,
+            'financial_year_id'
+        );
     }
 
-    // name accessor — year_name কে name হিসেবে access করা যাবে
     public function getNameAttribute(): string
     {
         return $this->year_name ?? '';

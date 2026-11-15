@@ -8,11 +8,27 @@ use App\Http\Controllers\Controller;
 use App\Models\Subscription;
 use App\Models\SubscriptionPayment;
 use App\Models\User;
+use App\Services\SubscriptionService;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
+use RuntimeException;
+use Throwable;
 
+/**
+ * Platform-level subscription payment monitoring.
+ *
+ * Every route using this controller MUST be behind the `super-admin`
+ * middleware (see routes/admin.php).
+ */
 class PaymentMonitoringController extends Controller
 {
+    public function __construct(
+        private readonly SubscriptionService $subscriptionService,
+    ) {}
+
     /**
      * Show all subscription payments dashboard
      */
@@ -57,6 +73,7 @@ class PaymentMonitoringController extends Controller
     public function show(SubscriptionPayment $payment): View
     {
         $payment->load('subscription.user', 'subscription.plan');
+
         return view('admin.payments.show', compact('payment'));
     }
 
@@ -74,70 +91,114 @@ class PaymentMonitoringController extends Controller
         return view('admin.payments.user', compact('user', 'subscriptions', 'payments'));
     }
 
-        /**
-     * Verify and activate payment
+    /**
+     * Verify a pending payment and activate its pending subscription.
+     *
+     * Atomic: either the payment is marked paid AND the subscription is
+     * activated, or nothing changes. Only a pending payment can be verified,
+     * so a double click / replay / failed payment cannot be re-verified.
      */
     public function verifyPayment(SubscriptionPayment $payment): RedirectResponse
     {
         try {
-            // Mark payment as PAID
-            $payment->update([
-                'status' => 'paid',
-                'paid_at' => now(),
-            ]);
+            DB::transaction(function () use ($payment): void {
+                $locked = SubscriptionPayment::query()
+                    ->lockForUpdate()
+                    ->findOrFail($payment->id);
 
-            // Get subscription and activate it
-            $subscription = $payment->subscription;
-            $subscription->update([
-                'status' => 'active',
-                'started_at' => now(),
-            ]);
+                if ($locked->status !== SubscriptionPayment::STATUS_PENDING) {
+                    throw new RuntimeException('Only a pending payment can be verified.');
+                }
+
+                $subscription = Subscription::query()->findOrFail($locked->subscription_id);
+
+                $locked->update([
+                    'status' => SubscriptionPayment::STATUS_PAID,
+                    'paid_at' => now(),
+                    'metadata' => array_merge($locked->metadata ?? [], [
+                        'verified_by' => auth()->id(),
+                        'verified_at' => now()->toIso8601String(),
+                    ]),
+                ]);
+
+                // Cancels the user's current active plan and activates this one,
+                // keeping the "one active subscription per user" invariant.
+                $this->subscriptionService->activatePendingSubscription($subscription);
+            });
 
             Log::info('Payment verified and subscription activated', [
                 'payment_id' => $payment->id,
-                'subscription_id' => $subscription->id,
-                'user_id' => $subscription->user_id,
+                'subscription_id' => $payment->subscription_id,
+                'verified_by' => auth()->id(),
             ]);
 
             return redirect()->route('admin.payments.show', $payment)
-                ->with('success', "পেমেন্ট #$payment->id সফলভাবে যাচাই হয়েছে। সাবস্ক্রিপশন সক্রিয় করা হয়েছে।");
-        } catch (\Exception $e) {
-            Log::error('Payment verification failed: ' . $e->getMessage());
-            return back()
-                ->with('error', 'পেমেন্ট যাচাই করতে সমস্যা হয়েছে: ' . $e->getMessage());
+                ->with('success', "পেমেন্ট #{$payment->id} সফলভাবে যাচাই হয়েছে। সাবস্ক্রিপশন সক্রিয় করা হয়েছে।");
+        } catch (RuntimeException $e) {
+            return back()->with('error', 'পেমেন্ট যাচাই করা যায়নি: ' . $e->getMessage());
+        } catch (Throwable $e) {
+            Log::error('Payment verification failed', [
+                'payment_id' => $payment->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return back()->with('error', 'পেমেন্ট যাচাই করতে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।');
         }
     }
 
     /**
-     * Reject payment and cancel subscription
+     * Reject a pending payment and cancel its still-pending subscription.
+     *
+     * An already active subscription is never touched here.
      */
     public function rejectPayment(SubscriptionPayment $payment): RedirectResponse
     {
         try {
-            // Mark payment as FAILED
-            $payment->update([
-                'status' => 'failed',
-            ]);
+            DB::transaction(function () use ($payment): void {
+                $locked = SubscriptionPayment::query()
+                    ->lockForUpdate()
+                    ->findOrFail($payment->id);
 
-            // Cancel subscription
-            $subscription = $payment->subscription;
-            $subscription->update([
-                'status' => 'cancelled',
-                'cancelled_at' => now(),
-            ]);
+                if ($locked->status !== SubscriptionPayment::STATUS_PENDING) {
+                    throw new RuntimeException('Only a pending payment can be rejected.');
+                }
 
-            Log::info('Payment rejected and subscription cancelled', [
+                $locked->update([
+                    'status' => SubscriptionPayment::STATUS_FAILED,
+                    'metadata' => array_merge($locked->metadata ?? [], [
+                        'rejected_by' => auth()->id(),
+                        'rejected_at' => now()->toIso8601String(),
+                    ]),
+                ]);
+
+                $subscription = Subscription::query()
+                    ->lockForUpdate()
+                    ->findOrFail($locked->subscription_id);
+
+                if ($subscription->status === Subscription::STATUS_PENDING) {
+                    $subscription->update([
+                        'status' => Subscription::STATUS_CANCELLED,
+                        'cancelled_at' => now(),
+                    ]);
+                }
+            });
+
+            Log::info('Payment rejected', [
                 'payment_id' => $payment->id,
-                'subscription_id' => $subscription->id,
-                'user_id' => $subscription->user_id,
+                'rejected_by' => auth()->id(),
             ]);
 
             return redirect()->route('admin.payments.show', $payment)
-                ->with('warning', "পেমেন্ট #$payment->id প্রত্যাখ্যান করা হয়েছে। সাবস্ক্রিপশন বাতিল করা হয়েছে।");
-        } catch (\Exception $e) {
-            Log::error('Payment rejection failed: ' . $e->getMessage());
-            return back()
-                ->with('error', 'পেমেন্ট প্রত্যাখ্যান করতে সমস্যা হয়েছে: ' . $e->getMessage());
+                ->with('warning', "পেমেন্ট #{$payment->id} প্রত্যাখ্যান করা হয়েছে।");
+        } catch (RuntimeException $e) {
+            return back()->with('error', 'পেমেন্ট প্রত্যাখ্যান করা যায়নি: ' . $e->getMessage());
+        } catch (Throwable $e) {
+            Log::error('Payment rejection failed', [
+                'payment_id' => $payment->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return back()->with('error', 'পেমেন্ট প্রত্যাখ্যান করতে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।');
         }
     }
 }

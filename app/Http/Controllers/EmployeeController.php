@@ -167,13 +167,33 @@ class EmployeeController extends Controller
         return view('employees.show', compact('employee'));
     }
 
+    public function photo(Employee $employee)
+    {
+        abort_unless(
+            (int) $employee->company_id === (int) session('company_id'),
+            404
+        );
+
+        abort_unless(
+            $employee->photo_path &&
+            Storage::disk('local')->exists($employee->photo_path),
+            404
+        );
+
+        return Storage::disk('local')->response(
+            $employee->photo_path
+        );
+    }
+
     public function edit(Employee $employee): View
     {
         return view('employees.edit', compact('employee'));
     }
 
-    public function update(Request $request, Employee $employee): RedirectResponse
-    {
+    public function update(
+        Request $request,
+        Employee $employee
+    ): RedirectResponse {
         $validated = $request->validate([
             'name' => [
                 'required',
@@ -273,7 +293,7 @@ class EmployeeController extends Controller
         }
 
         return redirect()
-            ->route('employees.index')
+            ->route('employees.show', $employee)
             ->with('success', 'Employee updated successfully.');
     }
 

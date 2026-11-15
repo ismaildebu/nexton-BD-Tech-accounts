@@ -6,11 +6,26 @@
 
 @section('content')
 
+
 @php
-    $h = now()->hour;
-    $greeting     = $h >= 5  && $h < 12 ? 'শুভ সকাল'    : ($h >= 12 && $h < 15 ? 'শুভ দুপুর' : ($h >= 15 && $h < 18 ? 'শুভ অপরাহ্ন' : 'শুভ রাত্রি'));
-    $greetingIcon = $h >= 5  && $h < 12 ? '🌅'           : ($h >= 12 && $h < 15 ? '☀️'        : ($h >= 15 && $h < 18 ? '🌤️'         : '🌙'));
+    $now = now('Asia/Dhaka');
+    $hour = $now->hour;
+
+    if ($hour >= 5 && $hour < 12) {
+        $greeting = 'শুভ সকাল';
+        $greetingIcon = '🌅';
+    } elseif ($hour >= 12 && $hour < 15) {
+        $greeting = 'শুভ দুপুর';
+        $greetingIcon = '☀️';
+    } elseif ($hour >= 15 && $hour < 18) {
+        $greeting = 'শুভ অপরাহ্ন';
+        $greetingIcon = '🌤️';
+    } else {
+        $greeting = 'শুভ রাত্রি';
+        $greetingIcon = '🌙';
+    }
 @endphp
+
 
 <style>
 .dashboard-bg{background:radial-gradient(circle at 5% 5%,rgba(59,130,246,.10),transparent 25%),radial-gradient(circle at 95% 8%,rgba(168,85,247,.10),transparent 25%),radial-gradient(circle at 90% 90%,rgba(20,184,166,.08),transparent 25%),#f8fafc}
@@ -76,11 +91,39 @@
                 </div>
             </div>
             <p class="text-sm text-blue-100">
-                {{ now()->translatedFormat('l, j F Y') }}
-                <span class="mx-1 opacity-50">•</span>
+                
                 আপনার ব্যবসার বর্তমান আর্থিক চিত্র
             </p>
         </div>
+
+        <div class="relative z-10 flex flex-wrap items-center justify-between gap-4 mb-5">
+    <div>
+        <p class="text-xs font-semibold text-blue-100">বাংলাদেশ সময়</p>
+        <div class="flex items-baseline gap-2">
+            <span id="dashboardClock"
+                  class="text-3xl sm:text-4xl font-extrabold tracking-tight text-white tabular-nums">
+                --:--:--
+            </span>
+            <span id="dashboardClockPeriod"
+                  class="text-sm font-bold text-blue-100">
+                --
+            </span>
+        </div>
+        <p id="dashboardClockDate"
+           class="text-xs text-blue-100 mt-1">
+            --
+        </p>
+    </div>
+
+    <div class="quick-btn rounded-2xl px-4 py-3 text-center">
+        <p class="text-[10px] uppercase tracking-wider text-blue-100 font-bold">
+            Time Zone
+        </p>
+        <p class="text-sm font-extrabold text-white">
+            Asia/Dhaka
+        </p>
+    </div>
+</div>
 
         <div class="relative z-10 flex flex-wrap items-center gap-2">
             <form method="GET" action="{{ route('dashboard') }}">
@@ -646,6 +689,57 @@
 @push('scripts')
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+
+    const clockElement = document.getElementById('dashboardClock');
+    const periodElement = document.getElementById('dashboardClockPeriod');
+    const dateElement = document.getElementById('dashboardClockDate');
+
+    function updateDashboardClock() {
+        const now = new Date();
+
+        const timeFormatter = new Intl.DateTimeFormat('en-GB', {
+            timeZone: 'Asia/Dhaka',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false,
+        });
+
+        const periodFormatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'Asia/Dhaka',
+            hour: 'numeric',
+            hour12: true,
+        });
+
+        const dateFormatter = new Intl.DateTimeFormat('en-GB', {
+            timeZone: 'Asia/Dhaka',
+            weekday: 'long',
+            day: '2-digit',
+            month: 'long',
+            year: 'numeric',
+        });
+
+        if (clockElement) {
+            clockElement.textContent = timeFormatter.format(now);
+        }
+
+        if (periodElement) {
+            const parts = periodFormatter.formatToParts(now);
+            const dayPeriod = parts.find(part => part.type === 'dayPeriod');
+
+            periodElement.textContent = dayPeriod
+                ? dayPeriod.value.toUpperCase()
+                : '';
+        }
+
+        if (dateElement) {
+            dateElement.textContent = dateFormatter.format(now);
+        }
+    }
+
+    updateDashboardClock();
+
+    setInterval(updateDashboardClock, 1000);
 
     const fmt = v => '৳' + (
         v >= 1e5 ? (v / 1e5).toFixed(1) + 'L' :

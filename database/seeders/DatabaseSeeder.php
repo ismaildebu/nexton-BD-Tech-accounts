@@ -18,7 +18,7 @@ class DatabaseSeeder extends Seeder
             PlanSeeder::class,
             PlanFeatureSeeder::class,
             SuperAdminSeeder::class,
-              SalesOrderTestSeeder::class,
+             
         ]);
     }
 }

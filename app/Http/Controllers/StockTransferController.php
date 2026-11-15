@@ -121,10 +121,17 @@ class StockTransferController extends Controller
                 $sourceStock->decrement('quantity', $validated['quantity']);
 
                 // Destination warehouse-এ বাড়ানো (না থাকলে তৈরি হবে)
+                
                 $destStock = ProductStock::firstOrCreate(
-                    ['product_id' => $validated['product_id'], 'warehouse_id' => $validated['to_warehouse_id']],
-                    ['quantity' => 0]
-                );
+                        [
+                            'company_id' => $companyId,
+                            'product_id' => $validated['product_id'],
+                            'warehouse_id' => $validated['to_warehouse_id'],
+                        ],
+                        [
+                            'quantity' => 0,
+                        ]
+                    );
                 $destStock->increment('quantity', $validated['quantity']);
 
                 $product = Product::find($validated['product_id']);

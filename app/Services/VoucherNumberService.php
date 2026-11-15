@@ -58,10 +58,24 @@ final class VoucherNumberService
         return ! $query->exists();
     }
 
+    /**
+     * Number prefix of a voucher type.
+     *
+     * 1. The type's own prefix, when it has one.
+     * 2. Otherwise the type's CODE. A code is unique inside a company,
+     *    so types that share a nature (Journal, Sales and Purchase
+     *    vouchers are all "journal") can never produce the same
+     *    voucher number from their separate counters.
+     * 3. Only a type without a code falls back to its nature.
+     */
     private function resolvePrefix(VoucherType $voucherType): string
     {
         if (filled($voucherType->prefix)) {
             return strtoupper($voucherType->prefix);
+        }
+
+        if (filled($voucherType->code)) {
+            return strtoupper($voucherType->code);
         }
 
         return match ($voucherType->nature) {
@@ -70,7 +84,7 @@ final class VoucherNumberService
             'receipt'  => 'RV',
             'contra'   => 'CV',
             'opening'  => 'OV',
-            default    => strtoupper(substr($voucherType->code, 0, 2)),
+            default    => 'VCH',
         };
     }
 }

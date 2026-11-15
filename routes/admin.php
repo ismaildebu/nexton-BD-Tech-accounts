@@ -3,7 +3,9 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\PaymentMonitoringController;
 
-Route::middleware(['auth', 'verified'])
+// SECURITY: platform-level billing administration. Restricted to Super Admin only.
+// The generic 'admin' role is NOT enough: every self-signed-up company admin has it.
+Route::middleware(['auth', 'verified', 'super-admin'])
     ->prefix('admin')
     ->name('admin.')
     ->group(function () {

@@ -41,7 +41,7 @@ class CustomerPaymentTest extends TestCase
         Mail::fake();
 
         User::factory()->create([
-        'id' => 1,
+            'id' => 1,
         ]);
 
         $this->service = app(CustomerPaymentService::class);
@@ -220,6 +220,26 @@ class CustomerPaymentTest extends TestCase
         $this->assertCount(
             2,
             $voucher->details
+        );
+
+        $this->assertSame(
+            '40.0000',
+            number_format(
+                (float) $voucher->total_debit,
+                4,
+                '.',
+                ''
+            )
+        );
+
+        $this->assertSame(
+            '40.0000',
+            number_format(
+                (float) $voucher->total_credit,
+                4,
+                '.',
+                ''
+            )
         );
 
         $this->assertSame(

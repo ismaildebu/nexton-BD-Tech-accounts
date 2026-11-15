@@ -11,16 +11,27 @@ class SalesOrder extends Model
     use SoftDeletes, BelongsToCompany;
 
     protected $fillable = [
-        'company_id', 'customer_id', 'so_number',
-        'order_date', 'delivery_date', 'status',
-        'subtotal', 'tax', 'discount', 'total', 'notes',
+        'company_id',
+        'customer_id',
+        'warehouse_id',
+        'so_number',
+        'order_date',
+        'delivery_date',
+        'status',
+        'subtotal',
+        'tax',
+        'discount',
+        'total',
+        'notes',
         'is_accounted',
+        'is_stock_deducted',
     ];
 
     protected $casts = [
-        'order_date'    => 'date',
-        'delivery_date' => 'date',
-        'is_accounted'  => 'boolean',
+        'order_date'       => 'date',
+        'delivery_date'    => 'date',
+        'is_accounted'     => 'boolean',
+        'is_stock_deducted'=> 'boolean',
     ];
 
     public function company()
@@ -31,6 +42,11 @@ class SalesOrder extends Model
     public function customer()
     {
         return $this->belongsTo(Customer::class);
+    }
+
+    public function warehouse()
+    {
+        return $this->belongsTo(Warehouse::class);
     }
 
     public function items()

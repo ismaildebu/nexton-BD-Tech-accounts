@@ -8,6 +8,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Password;
 use Illuminate\View\View;
 
 class UserController extends Controller
@@ -84,7 +85,7 @@ class UserController extends Controller
         $rules = [
             'name'     => ['required', 'string', 'max:255'],
             'email'    => ['required', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'string', 'min:6', 'confirmed'],
+            'password' => ['required', 'string', Password::defaults(), 'confirmed'],
             'role'     => ['required', 'string', Rule::in($allowedRoles)],
             'status'   => ['nullable', 'boolean'],
         ];
@@ -236,7 +237,7 @@ class UserController extends Controller
         $rules = [
             'name'     => ['required', 'string', 'max:255'],
             'email'    => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
-            'password' => ['nullable', 'string', 'min:6', 'confirmed'],
+            'password' => ['nullable', 'string', Password::defaults(), 'confirmed'],
             'role'     => ['required', 'string', Rule::in($allowedRoles)],
             'status'   => ['nullable', 'boolean'],
         ];

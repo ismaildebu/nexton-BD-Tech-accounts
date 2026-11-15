@@ -18,6 +18,7 @@ use App\Policies\AccountPolicy;
 use App\Models\Account;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rules\Password;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -48,6 +49,11 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(MediaDistribution::class, ModulePolicy::class);
         Gate::policy(MediaReturn::class, ModulePolicy::class);
         Gate::policy(MediaCollection::class, ModulePolicy::class);
+
+        // One password policy for every form that uses Password::defaults().
+        Password::defaults(fn () => $this->app->isProduction()
+            ? Password::min(10)->mixedCase()->numbers()
+            : Password::min(8));
 
         Paginator::defaultView('vendor.pagination.tailwind');
     }

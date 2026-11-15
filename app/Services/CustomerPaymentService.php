@@ -5,9 +5,12 @@ namespace App\Services;
 use App\Mail\AdminPaymentNotification;
 use App\Mail\PaymentReceivedMail;
 use App\Mail\PaymentVerifiedMail;
+use App\Models\Company;
 use App\Models\Customer;
 use App\Models\CustomerPayment;
 use App\Models\Invoice;
+use App\Models\User;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -101,6 +104,80 @@ class CustomerPaymentService
     }
 
     /**
+     * Manual bKash: the customer submits the transaction ID and sender number.
+     *
+     * This is a CLAIM, not a confirmation. Money has not been checked against
+     * the bKash statement yet, so this method must never change the status
+     * and must never create a voucher / touch the ledger. The receipt voucher
+     * is created only when an admin verifies the payment (verifyPayment()).
+     */
+    public function submitManualBkashPayment(
+        CustomerPayment $payment,
+        string $transactionId,
+        string $senderNumber
+    ): CustomerPayment {
+        $transactionId = strtoupper(trim($transactionId));
+
+        try {
+            $payment = DB::transaction(function () use (
+                $payment,
+                $transactionId,
+                $senderNumber
+            ) {
+                $locked = CustomerPayment::query()
+                    ->lockForUpdate()
+                    ->findOrFail($payment->id);
+
+                if ($locked->payment_method !== 'bkash') {
+                    throw new \RuntimeException(
+                        'This payment is not a bKash payment.'
+                    );
+                }
+
+                if ($locked->status !== 'pending' || $locked->voucher_id !== null) {
+                    throw new \RuntimeException(
+                        'Payment details can only be submitted while the payment is pending.'
+                    );
+                }
+
+                $alreadyUsed = CustomerPayment::withTrashed()
+                    ->where('transaction_reference', $transactionId)
+                    ->where('id', '!=', $locked->id)
+                    ->exists();
+
+                if ($alreadyUsed) {
+                    throw new \RuntimeException(
+                        'This bKash transaction ID has already been submitted.'
+                    );
+                }
+
+                $locked->update([
+                    'transaction_reference' => $transactionId,
+                    'metadata' => array_merge($locked->metadata ?? [], [
+                        'sender_number' => $senderNumber,
+                        'receiver_number' => Company::query()
+                            ->whereKey($locked->company_id)
+                            ->value('bkash_number'),
+                        'submitted_at' => now()->toIso8601String(),
+                        'awaiting_verification' => true,
+                    ]),
+                ]);
+
+                return $locked->refresh();
+            });
+        } catch (UniqueConstraintViolationException) {
+            // Concurrent submission of the same ID: the DB unique index won.
+            throw new \RuntimeException(
+                'This bKash transaction ID has already been submitted.'
+            );
+        }
+
+        $this->notifyAdminOfPayment($payment);
+
+        return $payment;
+    }
+
+    /**
      * Payment verify করা।
      *
      * Verification successful হলে:
@@ -142,44 +219,25 @@ class CustomerPaymentService
             }
 
             /*
-             * Invoice-based payment থাকলে existing invoice
-             * verification logic preserve করা হচ্ছে।
-             *
-             * Customer Code based payment-এর invoice_id হবে null,
-             * তাই এই block execute হবে না।
+             * A manual bKash payment can only be confirmed against a
+             * transaction ID the customer actually submitted.
              */
-            if ($payment->invoice_id !== null) {
-                $invoice = Invoice::query()
-                    ->where('company_id', $payment->company_id)
-                    ->lockForUpdate()
-                    ->findOrFail($payment->invoice_id);
-
-                if ($invoice->customer_id !== $payment->customer_id) {
-                    throw new \RuntimeException(
-                        'Payment customer does not match the invoice customer.'
-                    );
-                }
-
-                $outstandingAmount =
-                    $invoice->total_amount - $invoice->paid_amount;
-
-                if ($payment->amount > $outstandingAmount) {
-                    throw new \RuntimeException(
-                        'Payment amount exceeds the invoice outstanding amount.'
-                    );
-                }
-
-                $newPaidAmount =
-                    $invoice->paid_amount + $payment->amount;
-
-                $invoice->update([
-                    'paid_amount' => $newPaidAmount,
-                    'status' => $newPaidAmount >= $invoice->total_amount
-                        ? 'paid'
-                        : 'partial',
-                    'paid_at' => now(),
-                ]);
+            if (
+                $payment->payment_method === 'bkash'
+                && blank($payment->transaction_reference)
+            ) {
+                throw new \RuntimeException(
+                    'A bKash payment cannot be verified before the transaction ID is submitted.'
+                );
             }
+
+            /*
+             * Invoice-based payment: apply it to the invoice exactly once.
+             * (A merchant bKash payment has already applied itself when it
+             * was received, so this is then a no-op instead of a second
+             * increase of paid_amount.)
+             */
+            $this->applyPaymentToInvoice($payment);
 
             /*
              * Payment confirmation complete.
@@ -203,6 +261,135 @@ class CustomerPaymentService
             $this->sendPaymentVerifiedEmail($payment);
 
             return $payment;
+        });
+    }
+
+    /**
+     * Apply a payment to its invoice (paid_amount + status), exactly once.
+     *
+     * Must run inside a DB transaction (the invoice row is locked).
+     * Idempotent: the first application is recorded in
+     * metadata.invoice_applied_at and any later call does nothing, so
+     * every route that confirms a payment (merchant bKash callback, admin
+     * verification) can call it without double counting.
+     *
+     * @throws \RuntimeException customer mismatch or payment above outstanding
+     */
+    public function applyPaymentToInvoice(CustomerPayment $payment): void
+    {
+        if ($payment->invoice_id === null) {
+            return;
+        }
+
+        if (! empty(($payment->metadata ?? [])['invoice_applied_at'])) {
+            return;
+        }
+
+        $invoice = Invoice::query()
+            ->where('company_id', $payment->company_id)
+            ->lockForUpdate()
+            ->findOrFail($payment->invoice_id);
+
+        if ((int) $invoice->customer_id !== (int) $payment->customer_id) {
+            throw new \RuntimeException(
+                'Payment customer does not match the invoice customer.'
+            );
+        }
+
+        $outstanding = bcsub(
+            (string) $invoice->total_amount,
+            (string) $invoice->paid_amount,
+            4
+        );
+
+        if (bccomp((string) $payment->amount, $outstanding, 4) > 0) {
+            throw new \RuntimeException(
+                'Payment amount exceeds the invoice outstanding amount.'
+            );
+        }
+
+        $newPaid = bcadd(
+            (string) $invoice->paid_amount,
+            (string) $payment->amount,
+            4
+        );
+
+        $invoice->update([
+            'paid_amount' => $newPaid,
+            'status' => bccomp($newPaid, (string) $invoice->total_amount, 4) >= 0
+                ? 'paid'
+                : 'partial',
+            'paid_at' => now(),
+        ]);
+
+        $payment->update([
+            'metadata' => array_merge($payment->metadata ?? [], [
+                'invoice_applied_at' => now()->toIso8601String(),
+            ]),
+        ]);
+    }
+
+    /**
+     * Confirm an SSLCommerz payment from a gateway callback (IPN).
+     *
+     * SECURITY: the callback body is NOT trusted. The payment is resolved from
+     * OUR transaction id (no session / company from the caller), and the
+     * gateway's own validation API must confirm val_id, tran_id, currency and
+     * amount before anything is posted. Idempotent: a duplicate IPN for an
+     * already received/verified payment changes nothing.
+     *
+     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException unknown tran_id
+     * @throws \DomainException callback invalid / not confirmable
+     */
+    public function confirmSslcommerzPayment(
+        array $callback,
+        SSLCommerzPaymentService $gateway
+    ): CustomerPayment {
+        $tranId = trim((string) ($callback['tran_id'] ?? ''));
+        $valId = trim((string) ($callback['val_id'] ?? ''));
+
+        if ($tranId === '' || $valId === '') {
+            throw new \DomainException('Missing gateway reference.');
+        }
+
+        $payment = CustomerPayment::query()
+            ->where('payment_method', 'sslcommerz')
+            ->where('transaction_reference', $tranId)
+            ->firstOrFail();
+
+        if (in_array($payment->status, ['received', 'verified'], true)) {
+            return $payment; // duplicate IPN
+        }
+
+        if ($payment->status !== 'pending') {
+            throw new \DomainException(
+                "Payment cannot be confirmed from status: {$payment->status}"
+            );
+        }
+
+        // Remote HTTP call is deliberately made outside any DB transaction/lock.
+        $expectedAmount = bcadd((string) $payment->amount, '0', 2);
+
+        if (!$gateway->verifyPayment($callback, $expectedAmount, 'BDT')) {
+            throw new \DomainException('Gateway validation failed.');
+        }
+
+        return DB::transaction(function () use ($payment, $callback, $valId) {
+            $locked = CustomerPayment::query()
+                ->lockForUpdate()
+                ->findOrFail($payment->id);
+
+            $locked->update([
+                'metadata' => array_merge($locked->metadata ?? [], [
+                    'val_id' => $valId,
+                    'bank_tran_id' => $callback['bank_tran_id'] ?? null,
+                    'card_type' => $callback['card_type'] ?? null,
+                    'confirmed_via' => 'sslcommerz_ipn',
+                    'confirmed_at' => now()->toIso8601String(),
+                ]),
+            ]);
+
+            return $this->markAsReceived($locked);
         });
     }
 
@@ -371,9 +558,26 @@ class CustomerPaymentService
         CustomerPayment $payment
     ): void {
         try {
-            $adminEmails = [
-                'admin@example.com',
-            ];
+            // The payment is verified by the admins of the paying company,
+            // plus any extra address configured in config/payments.php.
+            $adminEmails = User::query()
+                ->where('company_id', $payment->company_id)
+                ->whereNotNull('email')
+                ->whereHas('roles', fn ($query) => $query->where('name', 'admin'))
+                ->pluck('email')
+                ->merge((array) config('payments.admin_notification_emails', []))
+                ->unique()
+                ->values()
+                ->all();
+
+            if ($adminEmails === []) {
+                Log::warning('No recipient for the admin payment notification.', [
+                    'payment_id' => $payment->id,
+                    'company_id' => $payment->company_id,
+                ]);
+
+                return;
+            }
 
             foreach ($adminEmails as $email) {
                 Mail::to($email)

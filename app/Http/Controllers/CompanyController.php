@@ -10,6 +10,7 @@ use App\Services\SubscriptionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rules\Password;
 use App\Models\FinancialYear;
 use App\Models\VoucherType;
 
@@ -65,7 +66,7 @@ class CompanyController extends Controller
 
             'admin_name'                  => 'required|string|max:255',
             'admin_email'                 => 'required|email|max:255|unique:users,email',
-            'admin_password'              => 'required|string|min:6|confirmed',
+            'admin_password'              => ['required', 'string', Password::defaults(), 'confirmed'],
         ]);
 
         DB::transaction(function () use ($request) {
@@ -145,6 +146,11 @@ class CompanyController extends Controller
                             'code'   => 'OV',
                             'nature' => VoucherType::NATURE_OPENING,
                         ],
+                        [
+                            'name'   => 'Sales Voucher',
+                            'code'   => 'SV',
+                            'nature' => VoucherType::NATURE_JOURNAL,
+                        ],
                     ];
 
                     foreach ($voucherTypes as $voucherType) {
@@ -168,6 +174,7 @@ class CompanyController extends Controller
             // public self-signup flow (CompanySignupController) enforces
             // that limit. The new owner still needs a subscription so
             // later plan-limit checks (e.g. adding more users) work.
+            app(\App\Services\CompanyAccountingDefaults::class)->ensure($company);
             $company->update(['owner_id' => $admin->id]);
             $this->subscriptionService->subscribeToFreePlan($admin);
         });

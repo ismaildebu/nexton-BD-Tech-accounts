@@ -6,7 +6,7 @@
 
 @section('content')
 
-<div class="max-w-5xl mx-auto">
+<div class="max-w-full mx-auto">
 
     <div class="bg-white rounded-xl shadow-sm p-6">
 
@@ -15,6 +15,7 @@
                 <h2 class="text-lg font-semibold text-slate-800">
                     Vendor Information
                 </h2>
+
                 <p class="text-sm text-slate-500 mt-1">
                     Add one or more vendors at once.
                 </p>
@@ -34,176 +35,185 @@
         <form method="POST" action="{{ route('vendors.bulk-store') }}">
             @csrf
 
-            <div id="vendor-rows">
-
-                <!-- Vendor Row -->
-                <div class="vendor-row border border-slate-200 rounded-xl p-5 mb-5 bg-slate-50">
-
-                    <div class="flex items-center justify-between mb-4">
-                        <h3 class="vendor-title text-base font-semibold text-slate-700">
-                            Vendor #1
-                        </h3>
-
-                        <button type="button"
-                                class="remove-vendor hidden text-sm text-red-600 hover:text-red-700 font-medium">
-                            Remove
-                        </button>
-                    </div>
-
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-
-                        <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-1">
+            <div class="overflow-x-auto border border-slate-200 rounded-xl">
+                <table class="w-full min-w-[1500px] text-sm">
+                    <thead class="bg-slate-50 border-b border-slate-200">
+                        <tr>
+                            <th class="px-3 py-3 text-left font-semibold text-slate-700">
                                 Vendor Name *
-                            </label>
+                            </th>
 
-                            <input type="text"
-                                   name="vendors[0][name]"
-                                   required
-                                   class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm
-                                          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                        </div>
-
-                        <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-1">
+                            <th class="px-3 py-3 text-left font-semibold text-slate-700">
                                 Accounting Account *
-                            </label>
+                            </th>
 
-                            <select name="vendors[0][account_id]"
-                                    required
-                                    class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm
-                                           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-
-                                <option value="">
-                                    -- Select Accounting Account --
-                                </option>
-
-                                @foreach($accounts as $account)
-                                    <option value="{{ $account->id }}">
-                                        {{ $account->account_code }} - {{ $account->account_name }}
-                                    </option>
-                                @endforeach
-
-                            </select>
-
-                            <p class="text-xs text-slate-500 mt-1">
-                                Select the accounting account used for this vendor.
-                            </p>
-                        </div>
-
-                        <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-1">
+                            <th class="px-3 py-3 text-left font-semibold text-slate-700">
                                 Phone
-                            </label>
+                            </th>
 
-                            <input type="text"
-                                   name="vendors[0][phone]"
-                                   class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm
-                                          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                        </div>
-
-                        <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-1">
+                            <th class="px-3 py-3 text-left font-semibold text-slate-700">
                                 Email
-                            </label>
+                            </th>
 
-                            <input type="email"
-                                   name="vendors[0][email]"
-                                   class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm
-                                          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                        </div>
+                            <th class="px-3 py-3 text-left font-semibold text-slate-700">
+                                Opening Balance
+                            </th>
 
-                        <div class="md:col-span-2">
-                            <label class="block text-sm font-medium text-slate-700 mb-1">
-                                Address
-                            </label>
-
-                            <textarea name="vendors[0][address]"
-                                      rows="2"
-                                      class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm
-                                             focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"></textarea>
-                        </div>
-
-                        <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-1">
-                                Trade License
-                            </label>
-
-                            <input type="text"
-                                   name="vendors[0][trade_license]"
-                                   class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm
-                                          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                        </div>
-
-                        <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-1">
-                                TIN
-                            </label>
-
-                            <input type="text"
-                                   name="vendors[0][tin]"
-                                   class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm
-                                          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                        </div>
-
-                        <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-1">
-                                Opening Balance (৳)
-                            </label>
-
-                            <input type="number"
-                                   name="vendors[0][opening_balance]"
-                                   value="0"
-                                   min="0"
-                                   step="0.01"
-                                   class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm
-                                          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                        </div>
-
-                        <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-1">
+                            <th class="px-3 py-3 text-left font-semibold text-slate-700">
                                 Balance Type
-                            </label>
+                            </th>
 
-                            <select name="vendors[0][balance_type]"
-                                    class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm
-                                           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            <th class="px-3 py-3 text-left font-semibold text-slate-700">
+                                Address
+                            </th>
 
-                                <option value="Payable">
-                                    Payable (আমরা দেব)
-                                </option>
+                            <th class="px-3 py-3 text-left font-semibold text-slate-700">
+                                Trade License
+                            </th>
 
-                                <option value="Advance">
-                                    Advance (আমরা পাব)
-                                </option>
+                            <th class="px-3 py-3 text-left font-semibold text-slate-700">
+                                TIN
+                            </th>
 
-                            </select>
-                        </div>
+                            <th class="px-3 py-3 text-center font-semibold text-slate-700">
+                                Action
+                            </th>
+                        </tr>
+                    </thead>
 
-                    </div>
-                </div>
+                    <tbody id="vendor-rows">
 
+                        <tr class="vendor-row border-b border-slate-200">
+
+                            <td class="px-3 py-3 align-top">
+                                <input
+                                    type="text"
+                                    name="vendors[0][name]"
+                                    required
+                                    class="w-full min-w-[180px] border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                >
+                            </td>
+
+                            <td class="px-3 py-3 align-top">
+                                <select
+                                    name="vendors[0][account_id]"
+                                    required
+                                    class="w-full min-w-[220px] border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                >
+                                    <option value="">
+                                        -- Select Accounting Account --
+                                    </option>
+
+                                    @foreach($accounts as $account)
+                                        <option value="{{ $account->id }}">
+                                            {{ $account->account_code }} - {{ $account->account_name }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                            </td>
+
+                            <td class="px-3 py-3 align-top">
+                                <input
+                                    type="text"
+                                    name="vendors[0][phone]"
+                                    class="w-full min-w-[130px] border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                >
+                            </td>
+
+                            <td class="px-3 py-3 align-top">
+                                <input
+                                    type="email"
+                                    name="vendors[0][email]"
+                                    class="w-full min-w-[180px] border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                >
+                            </td>
+
+                            <td class="px-3 py-3 align-top">
+                                <input
+                                    type="number"
+                                    name="vendors[0][opening_balance]"
+                                    value="0"
+                                    min="0"
+                                    step="0.01"
+                                    class="w-full min-w-[130px] border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                >
+                            </td>
+
+                            <td class="px-3 py-3 align-top">
+                                <select
+                                    name="vendors[0][balance_type]"
+                                    class="w-full min-w-[160px] border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                >
+                                    <option value="Payable">
+                                        Payable (আমরা দেব)
+                                    </option>
+
+                                    <option value="Advance">
+                                        Advance (আমরা পাব)
+                                    </option>
+                                </select>
+                            </td>
+
+                            <td class="px-3 py-3 align-top">
+                                <textarea
+                                    name="vendors[0][address]"
+                                    rows="1"
+                                    class="w-full min-w-[180px] border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                ></textarea>
+                            </td>
+
+                            <td class="px-3 py-3 align-top">
+                                <input
+                                    type="text"
+                                    name="vendors[0][trade_license]"
+                                    class="w-full min-w-[150px] border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                >
+                            </td>
+
+                            <td class="px-3 py-3 align-top">
+                                <input
+                                    type="text"
+                                    name="vendors[0][tin]"
+                                    class="w-full min-w-[130px] border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                >
+                            </td>
+
+                            <td class="px-3 py-3 text-center align-top">
+                                <button
+                                    type="button"
+                                    class="remove-vendor text-sm text-red-600 hover:text-red-700 font-medium hidden"
+                                >
+                                    Remove
+                                </button>
+                            </td>
+
+                        </tr>
+
+                    </tbody>
+                </table>
             </div>
 
-            <!-- Actions -->
-            <div class="flex flex-wrap items-center gap-3 pt-2">
+            <div class="flex flex-wrap items-center gap-3 pt-5">
 
-                <button type="button"
-                        id="add-vendor"
-                        class="bg-slate-700 text-white px-5 py-2.5 rounded-lg text-sm font-medium
-                               hover:bg-slate-800 transition">
+                <button
+                    type="button"
+                    id="add-vendor"
+                    class="bg-slate-700 text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-slate-800 transition"
+                >
                     + Add Vendor
                 </button>
 
-                <button type="submit"
-                        class="bg-blue-600 text-white px-6 py-2.5 rounded-lg text-sm font-medium
-                               hover:bg-blue-700 transition">
-                    Save Vendors
+                <button
+                    type="submit"
+                    class="bg-blue-600 text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 transition"
+                >
+                    Save All Vendors
                 </button>
 
-                <a href="{{ route('vendors.index') }}"
-                   class="bg-slate-100 text-slate-700 px-6 py-2.5 rounded-lg text-sm font-medium
-                          hover:bg-slate-200 transition">
+                <a
+                    href="{{ route('vendors.index') }}"
+                    class="bg-slate-100 text-slate-700 px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-slate-200 transition"
+                >
                     Cancel
                 </a>
 
@@ -216,67 +226,64 @@
 </div>
 
 <script>
-let vendorIndex = 1;
+    let vendorIndex = 1;
 
-document.getElementById('add-vendor').addEventListener('click', function () {
+    document.getElementById('add-vendor').addEventListener('click', function () {
 
-    const container = document.getElementById('vendor-rows');
-    const firstRow = document.querySelector('.vendor-row');
+        const container = document.getElementById('vendor-rows');
+        const firstRow = document.querySelector('.vendor-row');
 
-    const newRow = firstRow.cloneNode(true);
+        const newRow = firstRow.cloneNode(true);
 
-    newRow.querySelector('.vendor-title').textContent =
-        'Vendor #' + (vendorIndex + 1);
+        newRow.querySelectorAll('input, textarea, select').forEach(function (field) {
 
-    newRow.querySelector('.remove-vendor').classList.remove('hidden');
+            field.name = field.name.replace(
+                /\[0\]/,
+                '[' + vendorIndex + ']'
+            );
 
-    newRow.querySelectorAll('input, textarea, select').forEach(function (field) {
+            if (field.tagName === 'SELECT') {
+                field.selectedIndex = 0;
+            } else if (field.name.includes('[opening_balance]')) {
+                field.value = '0';
+            } else {
+                field.value = '';
+            }
+        });
 
-        field.name = field.name.replace(
-            /\[0\]/,
-            '[' + vendorIndex + ']'
-        );
+        newRow.querySelector('.remove-vendor').classList.remove('hidden');
 
-        if (field.tagName === 'SELECT') {
-            field.selectedIndex = 0;
-        } else if (field.name.includes('[opening_balance]')) {
-            field.value = 0;
-        } else {
-            field.value = '';
-        }
+        container.appendChild(newRow);
+
+        vendorIndex++;
     });
 
-    container.appendChild(newRow);
+    document.addEventListener('click', function (event) {
 
-    vendorIndex++;
-});
+        if (!event.target.classList.contains('remove-vendor')) {
+            return;
+        }
 
-document.addEventListener('click', function (event) {
+        const row = event.target.closest('.vendor-row');
 
-    if (!event.target.classList.contains('remove-vendor')) {
-        return;
-    }
+        if (!row) {
+            return;
+        }
 
-    const row = event.target.closest('.vendor-row');
-
-    if (row) {
         row.remove();
-        updateVendorTitles();
-    }
-});
 
-function updateVendorTitles() {
-
-    document.querySelectorAll('.vendor-row').forEach(function (row, index) {
-
-        const title = row.querySelector('.vendor-title');
-
-        if (title) {
-            title.textContent = 'Vendor #' + (index + 1);
-        }
-
+        updateVendorRemoveButtons();
     });
-}
+
+    function updateVendorRemoveButtons() {
+
+        const rows = document.querySelectorAll('.vendor-row');
+        const removeButtons = document.querySelectorAll('.remove-vendor');
+
+        removeButtons.forEach(function (button) {
+            button.classList.toggle('hidden', rows.length <= 1);
+        });
+    }
 </script>
 
 @endsection

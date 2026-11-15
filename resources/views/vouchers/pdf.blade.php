@@ -179,6 +179,7 @@
             </tr>
         </tbody>
     </table>
+    <p><strong>Amount in words:</strong> {{ \App\Support\AmountInWords::taka($transaction->total_debit) }}</p>
 
     {{-- Signatures --}}
     <table class="signature-table">
@@ -194,8 +195,11 @@
             </td>
             <td>
                 <div class="signature-name">Approved By</div>
-                @if($transaction->isPosted())
-                    <div>{{ $transaction->poster?->name ?? '—' }}</div>
+                @if($transaction->approver)
+                    <div>{{ $transaction->approver->name }}</div>
+                    <div class="signature-date">{{ $transaction->approved_at?->format('d M Y') }}</div>
+                @elseif($transaction->isPosted())
+                    <div>Auto-approved by system</div>
                     <div class="signature-date">{{ $transaction->posted_at?->format('d M Y') }}</div>
                 @else
                     <div>&nbsp;</div>

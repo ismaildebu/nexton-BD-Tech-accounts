@@ -46,6 +46,20 @@ class VoucherTypeSeeder extends Seeder
             'prefix'      => 'OV',
             'description' => 'Opening balance entries for a new financial year.',
         ],
+        [
+            'name'        => 'Sales Voucher',
+            'code'        => 'SV',
+            'nature'      => 'journal',
+            'prefix'      => 'SV',
+            'description' => 'Sales transactions generated from confirmed sales orders.',
+        ],
+        [
+            'name'        => 'Purchase Voucher',
+            'code'        => 'PUV',
+            'nature'      => 'journal',
+            'prefix'      => 'PUV',
+            'description' => 'Purchase transactions generated from purchase bills.',
+        ],
     ];
 
     public function run(): void

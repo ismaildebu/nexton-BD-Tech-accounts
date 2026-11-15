@@ -30,6 +30,14 @@ Route::middleware(['auth', 'verified', 'company'])->group(function (): void {
         ->middlewareFor(['index', 'show'], 'can-permission:financial-years.view')
         ->middlewareFor(['create', 'store'], 'can-permission:financial-years.manage')
         ->middlewareFor(['edit', 'update', 'destroy'], 'can-permission:financial-years.manage');
+
+    // Closing is an explicit action; reopening needs its own permission and a written reason.
+    Route::post('financial-years/{financialYear}/close', [FinancialYearController::class, 'close'])
+        ->middleware('can-permission:financial-years.manage')
+        ->name('financial-years.close');
+    Route::post('financial-years/{financialYear}/reopen', [FinancialYearController::class, 'reopen'])
+        ->middleware('can-permission:financial-years.reopen')
+        ->name('financial-years.reopen');
     Route::resource('voucher-types', VoucherTypeController::class)
         ->middlewareFor('index', 'can-permission:voucher-types.view')
         ->middlewareFor(['create', 'store', 'show', 'edit', 'update', 'destroy'], 'can-permission:voucher-types.manage');

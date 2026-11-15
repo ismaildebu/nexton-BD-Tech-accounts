@@ -144,13 +144,17 @@ class ExpenseController extends Controller
     {
         $this->authorizeCompany($expense);
 
+        // Same rules as store(): an update must not accept what a create refuses
+        // (it used to allow negative amounts and an unlimited category).
         $request->validate([
 
-            'expense_date'=>'required|date',
+            'expense_date' => ['required', 'date'],
 
-            'category'=>'required',
+            'category' => ['required', 'string', 'max:255'],
 
-            'amount'=>'required|numeric'
+            'description' => ['nullable', 'string'],
+
+            'amount' => ['required', 'numeric', 'min:0'],
 
         ]);
 

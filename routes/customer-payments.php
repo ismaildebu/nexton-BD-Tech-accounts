@@ -22,13 +22,21 @@ Route::get('/customer/payment/success/{payment}', [CustomerPaymentController::cl
 Route::get('/customer/payment/receipt/{payment}', [CustomerPaymentController::class, 'downloadReceipt'])
     ->name('customer-payment.receipt.download');
 
-// Webhooks
+// Gateway callbacks. The browser redirects (success/fail/cancel) arrive as
+// POST or GET from the gateway; the IPN is a server-to-server POST.
+// CSRF is excluded for these paths in bootstrap/app.php.
 Route::post('/webhooks/payment/sslcommerz/ipn', [CustomerPaymentController::class, 'ipnWebhook'])
-    ->name('customer-payment.sslcommerz.ipn')
-    ->withoutMiddleware('csrf');
+    ->middleware('throttle:60,1')
+    ->name('customer-payment.sslcommerz.ipn');
 
-Route::get('/customer/payment/sslcommerz/success', [CustomerPaymentController::class, 'sslcommerzSuccess'])
+Route::match(['get', 'post'], '/customer/payment/sslcommerz/success', [CustomerPaymentController::class, 'sslcommerzSuccess'])
     ->name('customer-payment.sslcommerz.success');
+
+Route::match(['get', 'post'], '/customer/payment/sslcommerz/fail', [CustomerPaymentController::class, 'sslcommerzFail'])
+    ->name('customer-payment.sslcommerz.fail');
+
+Route::match(['get', 'post'], '/customer/payment/sslcommerz/cancel', [CustomerPaymentController::class, 'sslcommerzCancel'])
+    ->name('customer-payment.sslcommerz.cancel');
 
     // ============================================================
 // Admin Routes (with admin middleware)

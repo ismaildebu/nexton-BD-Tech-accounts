@@ -251,7 +251,7 @@ class SubscriptionController extends Controller
             return 'IPN processing failed';
         } catch (\Exception $e) {
             Log::error('SSLCommerz IPN Error: ' . $e->getMessage());
-            return 'IPN error: ' . $e->getMessage();
+            return 'IPN error';
         }
     }
 
